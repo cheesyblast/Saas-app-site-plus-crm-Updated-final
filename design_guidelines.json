@@ -1,0 +1,145 @@
+{
+  "theme": "dark",
+  "archetype": "Archetype 4/5 Hybrid (Swiss & High-Contrast with Industrial Streetwear Aesthetics)",
+  "vibe": "Underground, bold, confident, premium, dark, urban.",
+  "typography": {
+    "fonts": {
+      "heading": "Unbounded",
+      "body": "IBM Plex Sans",
+      "mono": "JetBrains Mono"
+    },
+    "scale": {
+      "h1": "text-5xl sm:text-6xl lg:text-7xl font-black tracking-tighter uppercase",
+      "h2": "text-4xl sm:text-5xl font-bold tracking-tight uppercase",
+      "h3": "text-2xl sm:text-3xl font-bold tracking-tight",
+      "h4": "text-xl font-semibold",
+      "body": "text-base leading-relaxed text-neutral-300",
+      "small": "text-sm uppercase tracking-[0.2em] font-medium text-neutral-400"
+    },
+    "rules": [
+      "Headings MUST use Unbounded and tight letter spacing (tracking-tight or tracking-tighter).",
+      "Use ALL CAPS for major section headers and call-to-actions to enforce the streetwear brand identity.",
+      "Body text MUST use IBM Plex Sans for ultimate legibility, especially in the dense ERP dashboard.",
+      "Never use Inter, Roboto, or Space Grotesk."
+    ]
+  },
+  "colors": {
+    "palette": {
+      "background": "#09090B",
+      "surface": "#141415",
+      "surface_hover": "#1F1F22",
+      "border": "#27272A",
+      "primary": "#FF3B30",
+      "primary_hover": "#D92D23",
+      "text": "#FAFAFA",
+      "text_muted": "#A1A1AA",
+      "error": "#EF4444",
+      "success": "#22C55E"
+    },
+    "rules": [
+      "The UI is primarily monochromatic (Black, Dark Gray, White).",
+      "Safety Orange (#FF3B30) is the ONLY accent color. Use it sparingly for primary CTAs (Add to Cart, Checkout, Login) and critical data points in the ERP (Low Stock Alerts).",
+      "Never use generic blue, purple, or full-screen gradients.",
+      "Never use pure black (#000000); use Zinc-950 (#09090B) for depth."
+    ]
+  },
+  "spacing_and_layout": {
+    "storefront": {
+      "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+      "hero": "min-h-[85vh] flex flex-col justify-center",
+      "grid": "grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6",
+      "rules": [
+        "Use generous padding (py-24, py-32) for sections.",
+        "Embrace asymmetry. Offset product images from text blocks.",
+        "Use full-bleed images for hero and category headers."
+      ]
+    },
+    "admin_erp": {
+      "container": "px-4 sm:px-6 py-6 w-full",
+      "sidebar": "w-64 flex-shrink-0 border-r border-zinc-800 bg-zinc-950/50",
+      "grid": "grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4",
+      "rules": [
+        "Dense data layout. Use tighter padding (p-4, p-6).",
+        "Use subtle borders (border-zinc-800) instead of heavy shadows.",
+        "Ensure tables have sticky headers and horizontal scrolling."
+      ]
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-[#FF3B30] text-white hover:bg-[#D92D23] font-bold uppercase tracking-wider rounded-none px-8 py-4 transition-colors",
+      "secondary": "bg-transparent border border-zinc-700 text-white hover:border-white uppercase tracking-wider rounded-none px-8 py-4 transition-all",
+      "ghost": "bg-transparent text-zinc-400 hover:text-white hover:bg-zinc-900 rounded-none px-4 py-2"
+    },
+    "cards": {
+      "product": "bg-zinc-900/50 border border-zinc-800/50 hover:border-zinc-600 transition-colors group",
+      "dashboard_kpi": "bg-zinc-900/40 border border-zinc-800 p-6 rounded-sm flex flex-col justify-between"
+    },
+    "forms": {
+      "input": "bg-zinc-950 border-zinc-800 text-white rounded-none focus:border-[#FF3B30] focus:ring-1 focus:ring-[#FF3B30]",
+      "label": "text-sm font-medium text-zinc-300 uppercase tracking-widest mb-2"
+    },
+    "shadcn_overrides": {
+      "general": "Remove all rounded corners (rounded-md -> rounded-none or rounded-sm) to match the brutalist/industrial theme.",
+      "tables": "Use minimal borders. Hover states on rows should be bg-zinc-900.",
+      "tabs": "Use border-bottom style tabs instead of pills for a more editorial look.",
+      "dialog": "Backdrop should be backdrop-blur-xl bg-black/80. Dialog box bg-zinc-950 border border-zinc-800."
+    }
+  },
+  "micro_animations": {
+    "product_card": "On hover, slightly scale the image (scale-105) with a slow ease-out transition (duration-500).",
+    "buttons": "Primary buttons should have a slight background color shift and a subtle translate-y (translate-y-[-1px]) on hover.",
+    "page_load": "Fade in content slightly from bottom (translate-y-4 to translate-y-0 opacity-0 to opacity-100).",
+    "marquee": "Use a slow-moving marquee for brand slogans ('STREETWEAR EST. 2026 // BOLD & EDGY') in the footer or between sections."
+  },
+  "image_urls": [
+    {
+      "category": "hero",
+      "url": "https://images.unsplash.com/photo-1768084356884-22bb77e76931?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwyfHxzdHJlZXR3ZWFyJTIwbW9kZWwlMjBkYXJrJTIwdXJiYW4lMjBmYXNoaW9ufGVufDB8fHx8MTc3NzA0NjYyMHww&ixlib=rb-4.1.0&q=85",
+      "description": "Young black man wearing a vest - Perfect for main hero banner with text overlay."
+    },
+    {
+      "category": "hero_alternate",
+      "url": "https://images.unsplash.com/photo-1762666167416-72b1540a76b7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHw0fHxzdHJlZXR3ZWFyJTIwbW9kZWwlMjBkYXJrJTIwdXJiYW4lMjBmYXNoaW9ufGVufDB8fHx8MTc3NzA0NjYyMHww&ixlib=rb-4.1.0&q=85",
+      "description": "Young man leaning on car - Good for 'Featured Drops' section."
+    },
+    {
+      "category": "product_apparel_1",
+      "url": "https://images.pexels.com/photos/34156907/pexels-photo-34156907.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Folded t-shirts flat lay - Ideal for product catalog or category banners."
+    },
+    {
+      "category": "product_apparel_2",
+      "url": "https://images.unsplash.com/photo-1696086152513-c74dc1d4b135?crop=entropy&cs=srgb&fm=jpg&ixid=M3w7NDQ2MzR8MHwxfHNlYXJjaHwyfHxibGFjayUyMHQtc2hpcnQlMjBmbGF0JTIwbGF5JTIwY2xvdGhpbmd8ZW58MHx8fHwxNzc3MDQ2NjIwfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Black t-shirts on wooden hanger - Ideal for product thumbnails."
+    },
+    {
+      "category": "background_texture",
+      "url": "https://images.unsplash.com/photo-1633523316711-a969b8f47bdc?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwyfHxkYXJrJTIwd2FyZWhvdXNlJTIwaW5kdXN0cmlhbCUyMGNvbmNyZXRlfGVufDB8fHx8MTc3NzA0NjYyMHww&ixlib=rb-4.1.0&q=85",
+      "description": "Dark empty concrete parking garage - Use as a backdrop overlay with bg-black/80 for the auth page or specific CTA sections."
+    },
+    {
+      "category": "background_texture_2",
+      "url": "https://images.unsplash.com/photo-1776021810500-5f50a3d461a7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxkYXJrJTIwd2FyZWhvdXNlJTIwaW5kdXN0cmlhbCUyMGNvbmNyZXRlfGVufDB8fHx8MTc3NzA0NjYyMHww&ixlib=rb-4.1.0&q=85",
+      "description": "Graffiti-covered pillar - Perfect raw urban aesthetic for the 'About the Brand' section."
+    },
+    {
+      "category": "auth_bg",
+      "url": "https://images.pexels.com/photos/5843171/pexels-photo-5843171.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Empty dark warehouse with light streak. Good for full-bleed Google OAuth login screen."
+    }
+  ],
+  "accessibility_and_testing": [
+    "Ensure minimum 4.5:1 contrast ratio. Text on Safety Orange (#FF3B30) must be pure white.",
+    "All interactive elements MUST include `data-testid` attribute (e.g., `data-testid=\"add-to-cart-btn\"`)."
+  ],
+  "instructions_to_main_agent": [
+    "Install Unbounded and IBM Plex Sans from Google Fonts.",
+    "Implement the ERP Dashboard layout using a fixed sidebar with dark zinc tones and subtle borders. Do not use heavy box-shadows.",
+    "Implement the Customer Storefront with large, immersive sections. Overlay text over hero images must use a dark gradient or scrim (bg-black/50) to ensure readability.",
+    "Apply rounded-none across all components (buttons, inputs, cards) to establish the harsh, industrial aesthetic.",
+    "For the storefront, integrate a sliding cart drawer rather than a separate cart page.",
+    "For the ERP, implement dense, data-rich tables (Shadcn Table) with horizontal scrolling for inventory management.",
+    "Use Phosphor icons or Lucide icons with sharp/straight edges where possible."
+  ]
+}
