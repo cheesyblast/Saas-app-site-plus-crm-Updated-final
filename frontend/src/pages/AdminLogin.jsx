@@ -41,7 +41,7 @@ export default function AdminLogin() {
             </p>
           </div>
           <div className="text-[10px] font-heading uppercase tracking-[0.4em] text-zinc-600">
-            EST. 2026 // BOLD &amp; EDGY
+            EST. 2026 // HERITAGE POLOS
           </div>
         </div>
       </div>

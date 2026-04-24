@@ -22,7 +22,7 @@ export default function Navbar() {
             {[
               { to: "/", label: "Home" },
               { to: "/shop", label: "Shop" },
-              { to: "/shop?category=tees", label: "Tees" },
+              { to: "/shop?category=heritage", label: "Heritage" },
               { to: "/account", label: "Account" },
             ].map((n) => (
               <NavLink

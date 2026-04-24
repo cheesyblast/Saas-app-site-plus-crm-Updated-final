@@ -24,7 +24,7 @@ export default function Login() {
             Sign in
           </h1>
           <p className="text-sm text-zinc-400">
-            Access your storefront and control the drop.
+            Sign in to your account to track orders &amp; manage details.
           </p>
         </div>
 
@@ -43,7 +43,7 @@ export default function Login() {
         </Button>
 
         <p className="mt-8 text-xs text-zinc-500 font-heading uppercase tracking-[0.25em]">
-          Est. 2026 — Bold & Edgy
+          Est. 2026 — Heritage Polos
         </p>
       </div>
     </div>

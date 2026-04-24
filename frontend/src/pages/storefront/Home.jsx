@@ -20,7 +20,7 @@ export default function Home() {
         <div className="absolute inset-0">
           <img
             src="https://images.unsplash.com/photo-1768084356884-22bb77e76931?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwyfHxzdHJlZXR3ZWFyJTIwbW9kZWwlMjBkYXJrJTIwdXJiYW4lMjBmYXNoaW9ufGVufDB8fHx8MTc3NzA0NjYyMHww&ixlib=rb-4.1.0&q=85"
-            alt="Streetwear Hero"
+            alt="Polo Hero"
             className="w-full h-full object-cover opacity-60"
           />
           <div className="absolute inset-0 bg-gradient-to-r from-zinc-950 via-zinc-950/60 to-transparent" />
@@ -32,15 +32,15 @@ export default function Home() {
             <div className="inline-flex items-center gap-3 mb-8 border border-zinc-700 px-4 py-1.5">
               <span className="h-1.5 w-1.5 bg-[#FF3B30] animate-pulse" />
               <span className="text-[10px] font-heading uppercase tracking-[0.35em] text-zinc-300">
-                DROP 04 — LIVE NOW
+                SS26 COLLECTION — IN STOCK
               </span>
             </div>
             <h1 className="font-heading text-5xl sm:text-6xl lg:text-8xl font-black uppercase tracking-tighter leading-[0.9] mb-6">
-              Built for the <br />
-              <span className="text-[#FF3B30]">underground.</span>
+              Quietly bold. <br />
+              <span className="text-[#FF3B30]">Sharply cut.</span>
             </h1>
             <p className="text-zinc-300 max-w-xl text-base sm:text-lg leading-relaxed mb-10">
-              Heavyweight cotton. Uncompromising prints. Limited runs cut and shipped from the backroom. No restocks. No apologies.
+              Heritage polos in heavyweight pima cotton. Embroidered crests, contrast tipping and a fit that holds its shape from the office to the 19th hole.
             </p>
             <div className="flex flex-wrap gap-4">
               <Link
@@ -48,14 +48,14 @@ export default function Home() {
                 data-testid="hero-shop-btn"
                 className="group bg-[#FF3B30] hover:bg-[#D92D23] text-white font-heading font-bold uppercase tracking-[0.25em] text-sm px-8 py-4 inline-flex items-center gap-3 transition-all hover:-translate-y-[1px]"
               >
-                Shop The Drop
+                Shop The Collection
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
               </Link>
               <Link
                 to="/shop?featured=1"
                 className="border border-zinc-600 hover:border-white text-white font-heading font-bold uppercase tracking-[0.25em] text-sm px-8 py-4 inline-flex items-center gap-3"
               >
-                View Lookbook
+                View Heritage
               </Link>
             </div>
           </div>
@@ -74,14 +74,14 @@ export default function Home() {
               Featured
             </div>
             <h2 className="font-heading text-4xl sm:text-6xl font-black uppercase tracking-tighter">
-              Latest Drops
+              Signature Polos
             </h2>
           </div>
           <Link
             to="/shop"
             className="hidden sm:inline-flex items-center gap-2 text-xs font-heading uppercase tracking-widest text-zinc-400 hover:text-white"
           >
-            All Products <ArrowRight className="h-3 w-3" />
+            All Polos <ArrowRight className="h-3 w-3" />
           </Link>
         </div>
 
@@ -106,16 +106,16 @@ export default function Home() {
               The Brand
             </div>
             <h3 className="font-heading text-4xl sm:text-5xl font-black uppercase tracking-tighter mb-6">
-              Cut sharp.<br /> Print loud.<br /> Sell fast.
+              Stitched right.<br /> Worn easy.<br /> Built to last.
             </h3>
             <p className="text-zinc-400 leading-relaxed mb-6">
-              Threadline is a SaaS-ready streetwear platform — run your shop, your warehouse, your payroll and your drops from one dark, data-dense control room.
+              Threadline crafts heritage-style polos with a modern edge — heavyweight pima, embroidered crests, contrast tipping, and a fit that flatters without trying. Designed in the studio, finished by hand.
             </p>
             <div className="grid grid-cols-3 gap-6 mt-10">
               {[
-                { k: "60s", v: "Drop deploy" },
-                { k: "99.9%", v: "Stock accuracy" },
-                { k: "5+", v: "Store locations" },
+                { k: "210gsm", v: "Pima cotton" },
+                { k: "100%", v: "Hand-finished" },
+                { k: "5+", v: "Signature crests" },
               ].map((s) => (
                 <div key={s.k} className="border-l-2 border-[#FF3B30] pl-4">
                   <div className="font-heading text-3xl font-black">{s.k}</div>

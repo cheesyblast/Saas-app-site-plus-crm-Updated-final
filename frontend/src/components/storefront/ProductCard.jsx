@@ -28,7 +28,7 @@ export default function ProductCard({ product }) {
         )}
         {product.featured && (
           <span className="absolute top-3 left-3 bg-[#FF3B30] text-white text-[10px] font-bold px-2 py-1 uppercase tracking-widest">
-            Drop
+            New
           </span>
         )}
         {oos && (

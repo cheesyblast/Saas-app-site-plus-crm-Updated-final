@@ -9,7 +9,7 @@ export default function Footer() {
           <div className="marquee-track">
             {Array.from({ length: 8 }).map((_, i) => (
               <span key={i} className="font-heading text-5xl sm:text-7xl font-black tracking-tighter uppercase text-zinc-900">
-                STREETWEAR <span className="text-[#FF3B30]">//</span> EST. 2026 <span className="text-[#FF3B30]">//</span> BOLD &amp; EDGY&nbsp;
+                HERITAGE POLOS <span className="text-[#FF3B30]">//</span> EST. 2026 <span className="text-[#FF3B30]">//</span> QUIETLY BOLD&nbsp;
               </span>
             ))}
           </div>
@@ -21,7 +21,7 @@ export default function Footer() {
             THREADLINE<span className="text-[#FF3B30]">.</span>
           </div>
           <p className="text-sm text-zinc-500 max-w-sm">
-            Bold streetwear engineered for the underground. Unconventional cuts, uncompromising print quality, unapologetic attitude.
+            Heritage polos with embroidered crests, contrast tipping and a fit that holds. Designed in the studio, finished by hand.
           </p>
         </div>
         <div>
@@ -40,7 +40,7 @@ export default function Footer() {
         </div>
       </div>
       <div className="border-t border-zinc-800 py-6 text-center text-xs text-zinc-600 uppercase tracking-[0.25em] font-heading">
-        © 2026 Threadline — All Rights Reserved
+        © 2026 Threadline — Heritage Polos
       </div>
     </footer>
   );
