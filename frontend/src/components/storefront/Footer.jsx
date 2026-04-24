@@ -1,7 +1,17 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import api from "@/lib/api";
 
 export default function Footer() {
+  const [theme, setTheme] = useState({});
+  useEffect(() => {
+    api.get("/theme").then(({ data }) => setTheme(data)).catch(() => {});
+  }, []);
+  const phrases = (theme.marquee_phrases && theme.marquee_phrases.length > 0)
+    ? theme.marquee_phrases
+    : ["HERITAGE POLOS", "EST. 2026", "QUIETLY BOLD"];
+  const sep = theme.marquee_separator || "//";
+
   return (
     <footer className="border-t border-zinc-800 bg-zinc-950 mt-24">
       <div className="max-w-7xl mx-auto overflow-hidden py-10 border-b border-zinc-800">
@@ -9,7 +19,13 @@ export default function Footer() {
           <div className="marquee-track">
             {Array.from({ length: 8 }).map((_, i) => (
               <span key={i} className="font-heading text-5xl sm:text-7xl font-black tracking-tighter uppercase text-zinc-900">
-                HERITAGE POLOS <span className="text-[#FF3B30]">//</span> EST. 2026 <span className="text-[#FF3B30]">//</span> QUIETLY BOLD&nbsp;
+                {phrases.map((p, j) => (
+                  <React.Fragment key={j}>
+                    {p}
+                    {j < phrases.length - 1 && <span style={{ color: "var(--theme-primary, #FF3B30)" }}> {sep} </span>}
+                  </React.Fragment>
+                ))}
+                &nbsp;<span style={{ color: "var(--theme-primary, #FF3B30)" }}>{sep}</span>&nbsp;
               </span>
             ))}
           </div>

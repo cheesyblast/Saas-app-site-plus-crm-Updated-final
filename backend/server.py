@@ -42,14 +42,128 @@ api = APIRouter(prefix="/api")
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    # seed default store if none
-    from sqlalchemy.ext.asyncio import AsyncSession as _S
     from database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         stores = (await db.execute(select(M.Store))).scalars().all()
         if not stores:
             db.add(M.Store(name="Main Store", is_online=True, active=True, address="Online"))
             await db.commit()
+        # Seed default theme
+        theme = (await db.execute(select(M.ThemeSetting).where(M.ThemeSetting.id == "default"))).scalar_one_or_none()
+        if not theme:
+            db.add(M.ThemeSetting(id="default", config=DEFAULT_THEME))
+            await db.commit()
+        # Seed default Home sections if none exist
+        existing = (await db.execute(select(M.PageSection).where(M.PageSection.page == "home"))).scalars().all()
+        if not existing:
+            for i, sec in enumerate(DEFAULT_HOME_SECTIONS):
+                db.add(M.PageSection(
+                    page="home",
+                    section_type=sec["section_type"],
+                    sort_order=i * 10,
+                    visible=True,
+                    config=sec["config"],
+                ))
+            await db.commit()
+
+
+DEFAULT_THEME = {
+    "primary_color": "#FF3B30",
+    "primary_color_hover": "#D92D23",
+    "background_color": "#09090B",
+    "marquee_phrases": ["HERITAGE POLOS", "EST. 2026", "QUIETLY BOLD"],
+    "marquee_separator": "//",
+}
+
+
+DEFAULT_HOME_SECTIONS = [
+    {
+        "section_type": "hero",
+        "config": {
+            "badge_text": "SS26 COLLECTION — IN STOCK",
+            "headline_line1": "Quietly bold.",
+            "headline_line2": "Sharply cut.",
+            "headline_line2_accent": True,
+            "headline_size": "lg",
+            "subheading": "Heritage polos in heavyweight pima cotton. Embroidered crests, contrast tipping and a fit that holds its shape from the office to the 19th hole.",
+            "cta_primary_label": "Shop The Collection",
+            "cta_primary_link": "/shop",
+            "cta_secondary_label": "View Heritage",
+            "cta_secondary_link": "/shop?featured=1",
+            "image_url": "https://images.unsplash.com/photo-1768084356884-22bb77e76931?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjY2NzF8MHwxfHNlYXJjaHwyfHxzdHJlZXR3ZWFyJTIwbW9kZWwlMjBkYXJrJTIwdXJiYW4lMjBmYXNoaW9ufGVufDB8fHx8MTc3NzA0NjYyMHww&ixlib=rb-4.1.0&q=85",
+            "image_id": None,
+            "image_position": "right",
+            "overlay_opacity": 60,
+            "height": "tall",
+        },
+    },
+    {
+        "section_type": "featured",
+        "config": {
+            "eyebrow": "Featured",
+            "heading": "Signature Polos",
+            "max_items": 8,
+            "category_slug": None,
+            "show_view_all_button": True,
+            "view_all_label": "Shop The Full Collection",
+            "view_all_link": "/shop",
+        },
+    },
+    {
+        "section_type": "brand",
+        "config": {
+            "eyebrow": "The Brand",
+            "headline": "Stitched right.\nWorn easy.\nBuilt to last.",
+            "paragraph": "Threadline crafts heritage-style polos with a modern edge — heavyweight pima, embroidered crests, contrast tipping, and a fit that flatters without trying. Designed in the studio, finished by hand.",
+            "stats": [
+                {"value": "210gsm", "label": "Pima cotton"},
+                {"value": "100%", "label": "Hand-finished"},
+                {"value": "5+", "label": "Signature crests"},
+            ],
+            "image_url": "https://images.unsplash.com/photo-1776021810500-5f50a3d461a7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1NzR8MHwxfHNlYXJjaHwxfHxkYXJrJTIwd2FyZWhvdXNlJTIwaW5kdXN0cmlhbCUyMGNvbmNyZXRlfGVufDB8fHx8MTc3NzA0NjYyMHww&ixlib=rb-4.1.0&q=85",
+            "image_id": None,
+            "image_side": "right",
+            "tagline": "EST. 2026 · SL",
+        },
+    },
+    {
+        "section_type": "story",
+        "config": {
+            "eyebrow": "Our Story",
+            "headline": "From a back-room idea to a heritage label.",
+            "paragraph": "It started in 2026 with three sketches and a stubborn idea: that a polo can be quiet and powerful at the same time. Five seasons later, we're still hand-finishing every collar, still shipping in numbered runs, still answering every email ourselves.",
+            "image_url": "",
+            "image_id": None,
+            "image_side": "left",
+        },
+    },
+    {
+        "section_type": "reviews",
+        "config": {
+            "eyebrow": "Praise",
+            "heading": "Worn & loved.",
+            "items": [
+                {"name": "Marcus K.", "role": "Verified Buyer", "rating": 5, "text": "Best polo I own. The collar still snaps after a year of wear and weekly washes. Worth every cent."},
+                {"name": "Anika R.", "role": "Verified Buyer", "rating": 5, "text": "Beautifully cut, the embroidery is sharp, and the colours are unreal in person. Bought two more."},
+                {"name": "James O.", "role": "Verified Buyer", "rating": 5, "text": "Heavy enough to feel premium, light enough for summer. Fits like it was made for me."},
+            ],
+        },
+    },
+    {
+        "section_type": "custom",
+        "config": {
+            "block_type": "heading_text",
+            "eyebrow": "",
+            "heading": "Add your own block.",
+            "text": "Edit this section from the admin Builder. Switch its type to a heading + text, an image hero, or split image + text.",
+            "image_url": "",
+            "image_id": None,
+            "alignment": "center",
+            "max_width": "narrow",
+            "padding": "lg",
+        },
+    },
+]
 
 
 # ========== UTILS ==========
@@ -1314,6 +1428,183 @@ async def list_notifications(db: AsyncSession = Depends(get_db), _: M.User = Dep
 @api.get("/")
 async def root():
     return {"app": "Threadline SaaS ERP", "status": "ok"}
+
+
+# ========== PAGE BUILDER ==========
+class SectionIn(BaseModel):
+    section_type: str
+    sort_order: int = 0
+    visible: bool = True
+    config: dict = {}
+
+
+class SectionUpdate(BaseModel):
+    sort_order: Optional[int] = None
+    visible: Optional[bool] = None
+    config: Optional[dict] = None
+
+
+class ThemeIn(BaseModel):
+    config: dict
+
+
+def _section_to_dict(s: M.PageSection):
+    return {
+        "id": s.id,
+        "page": s.page,
+        "section_type": s.section_type,
+        "sort_order": s.sort_order,
+        "visible": s.visible,
+        "config": s.config or {},
+    }
+
+
+@api.get("/page/{page}")
+async def get_page(page: str, db: AsyncSession = Depends(get_db)):
+    rows = (await db.execute(
+        select(M.PageSection).where(and_(M.PageSection.page == page, M.PageSection.visible == True)).order_by(M.PageSection.sort_order)
+    )).scalars().all()
+    theme = (await db.execute(select(M.ThemeSetting).where(M.ThemeSetting.id == "default"))).scalar_one_or_none()
+    return {
+        "sections": [_section_to_dict(s) for s in rows],
+        "theme": (theme.config if theme else DEFAULT_THEME),
+    }
+
+
+@api.get("/admin/page/{page}")
+async def admin_get_page(page: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    rows = (await db.execute(
+        select(M.PageSection).where(M.PageSection.page == page).order_by(M.PageSection.sort_order)
+    )).scalars().all()
+    return {"sections": [_section_to_dict(s) for s in rows]}
+
+
+@api.post("/admin/page/{page}/sections")
+async def add_section(page: str, payload: SectionIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    # default sort_order to end if not provided
+    if payload.sort_order is None or payload.sort_order == 0:
+        max_order = (await db.execute(
+            select(func.max(M.PageSection.sort_order)).where(M.PageSection.page == page)
+        )).scalar_one() or 0
+        payload.sort_order = int(max_order) + 10
+    s = M.PageSection(
+        page=page,
+        section_type=payload.section_type,
+        sort_order=payload.sort_order,
+        visible=payload.visible,
+        config=payload.config,
+    )
+    db.add(s)
+    await db.commit()
+    await db.refresh(s)
+    return _section_to_dict(s)
+
+
+@api.put("/admin/page/sections/{sid}")
+async def update_section(sid: str, payload: SectionUpdate, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    s = (await db.execute(select(M.PageSection).where(M.PageSection.id == sid))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "Not found")
+    if payload.sort_order is not None:
+        s.sort_order = payload.sort_order
+    if payload.visible is not None:
+        s.visible = payload.visible
+    if payload.config is not None:
+        s.config = payload.config
+    s.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return _section_to_dict(s)
+
+
+@api.delete("/admin/page/sections/{sid}")
+async def delete_section(sid: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    s = (await db.execute(select(M.PageSection).where(M.PageSection.id == sid))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "Not found")
+    await db.delete(s)
+    await db.commit()
+    return {"ok": True}
+
+
+class ReorderIn(BaseModel):
+    ids: list[str]
+
+
+@api.post("/admin/page/{page}/reorder")
+async def reorder_sections(page: str, payload: ReorderIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    for i, sid in enumerate(payload.ids):
+        s = (await db.execute(select(M.PageSection).where(and_(M.PageSection.id == sid, M.PageSection.page == page)))).scalar_one_or_none()
+        if s:
+            s.sort_order = i * 10
+    await db.commit()
+    return {"ok": True}
+
+
+@api.get("/theme")
+async def get_theme(db: AsyncSession = Depends(get_db)):
+    theme = (await db.execute(select(M.ThemeSetting).where(M.ThemeSetting.id == "default"))).scalar_one_or_none()
+    return theme.config if theme else DEFAULT_THEME
+
+
+@api.put("/admin/theme")
+async def update_theme(payload: ThemeIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    theme = (await db.execute(select(M.ThemeSetting).where(M.ThemeSetting.id == "default"))).scalar_one_or_none()
+    if not theme:
+        theme = M.ThemeSetting(id="default", config=payload.config)
+        db.add(theme)
+    else:
+        theme.config = payload.config
+        theme.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return theme.config
+
+
+# ---- Media ----
+class MediaUpload(BaseModel):
+    data_base64: str
+    mime_type: str = "image/png"
+    filename: Optional[str] = None
+
+
+@api.post("/admin/media")
+async def upload_media(payload: MediaUpload, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    m = M.Media(
+        data_base64=payload.data_base64,
+        mime_type=payload.mime_type,
+        filename=payload.filename,
+    )
+    db.add(m)
+    await db.commit()
+    await db.refresh(m)
+    return {"id": m.id, "url": f"/api/media/{m.id}", "mime_type": m.mime_type}
+
+
+@api.get("/media/{mid}")
+async def stream_media(mid: str, db: AsyncSession = Depends(get_db)):
+    row = (await db.execute(
+        select(M.Media.data_base64, M.Media.mime_type).where(M.Media.id == mid)
+    )).first()
+    if not row:
+        raise HTTPException(404, "Not found")
+    try:
+        raw = _b64.b64decode(row.data_base64)
+    except Exception:
+        raise HTTPException(500, "Corrupt")
+    return _Response(
+        content=raw,
+        media_type=row.mime_type or "image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
+
+
+@api.delete("/admin/media/{mid}")
+async def delete_media(mid: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    m = (await db.execute(select(M.Media).where(M.Media.id == mid))).scalar_one_or_none()
+    if not m:
+        raise HTTPException(404, "Not found")
+    await db.delete(m)
+    await db.commit()
+    return {"ok": True}
 
 
 app.include_router(api)

@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime, timezone
 from sqlalchemy import (
-    Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, Index
+    Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, Index, JSON
 )
 from sqlalchemy.orm import relationship
 from database import Base
@@ -244,3 +244,32 @@ class NotificationLog(Base):
     body = Column(Text, nullable=False)
     related_order = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+
+
+# ---- Page Builder ----
+class Media(Base):
+    __tablename__ = "media"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    filename = Column(String(255), nullable=True)
+    data_base64 = Column(Text, nullable=False)
+    mime_type = Column(String(64), default="image/png", nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class PageSection(Base):
+    __tablename__ = "page_sections"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    page = Column(String(32), default="home", nullable=False, index=True)
+    section_type = Column(String(32), nullable=False)  # hero, featured, brand, story, reviews, custom, marquee
+    sort_order = Column(Integer, default=0, nullable=False)
+    visible = Column(Boolean, default=True, nullable=False)
+    config = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class ThemeSetting(Base):
+    __tablename__ = "theme_settings"
+    id = Column(String(32), primary_key=True, default="default")
+    config = Column(JSON, nullable=False, default=dict)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)

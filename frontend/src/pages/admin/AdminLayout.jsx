@@ -4,11 +4,12 @@ import { useAuth } from "@/lib/auth";
 import {
   LayoutDashboard, Package, Tag, Warehouse, ShoppingCart, Users, ScanLine,
   Store as StoreIcon, Ticket, DollarSign, Wallet, UserCog, BarChart3, Megaphone,
-  Bell, LogOut, ExternalLink, ChevronRight
+  Bell, LogOut, ExternalLink, ChevronRight, Layout
 } from "lucide-react";
 
 const nav = [
   { to: "/admin", label: "Dashboard", icon: LayoutDashboard, exact: true },
+  { to: "/admin/builder", label: "Page Builder", icon: Layout },
   { to: "/admin/products", label: "Products", icon: Package },
   { to: "/admin/categories", label: "Categories", icon: Tag },
   { to: "/admin/inventory", label: "Inventory", icon: Warehouse },

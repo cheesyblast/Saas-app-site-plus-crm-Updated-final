@@ -32,6 +32,7 @@ import AdminStaff from "@/pages/admin/Staff";
 import AdminReports from "@/pages/admin/Reports";
 import AdminMarketing from "@/pages/admin/Marketing";
 import AdminNotifications from "@/pages/admin/Notifications";
+import AdminBuilder from "@/pages/admin/Builder";
 import Dashboard_Redirect from "@/pages/DashboardRouter";
 
 function AppRouter() {
@@ -56,6 +57,7 @@ function AppRouter() {
 
       <Route element={<AdminLayout />}>
         <Route path="/admin" element={<Dashboard />} />
+        <Route path="/admin/builder" element={<AdminBuilder />} />
         <Route path="/admin/products" element={<AdminProducts />} />
         <Route path="/admin/categories" element={<AdminCategories />} />
         <Route path="/admin/inventory" element={<AdminInventory />} />
