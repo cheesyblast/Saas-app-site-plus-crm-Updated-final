@@ -31,7 +31,7 @@ export default function AdminLayout() {
 
   useEffect(() => {
     if (loading) return;
-    if (!user) { n("/login"); return; }
+    if (!user) { n("/admin/login"); return; }
     if (user.role === "customer") { n("/account"); return; }
   }, [user, loading, n]);
 

@@ -73,20 +73,31 @@ async def auth_session(payload: SessionRequest, response: Response, db: AsyncSes
     email = profile.get("email")
     if not email:
         raise HTTPException(status_code=400, detail="Missing email")
+
+    # ADMIN_EMAILS env: comma-separated list — these are ALWAYS super_admin
+    admin_emails = {e.strip().lower() for e in os.environ.get("ADMIN_EMAILS", "").split(",") if e.strip()}
+    is_protected_admin = email.lower() in admin_emails
+
     # find or create user
     existing = (await db.execute(select(M.User).where(M.User.email == email))).scalar_one_or_none()
     if existing:
-        # Update name/picture if changed
         if profile.get("name"):
             existing.name = profile["name"]
         if profile.get("picture"):
             existing.picture = profile["picture"]
+        # Always promote protected admin emails (idempotent)
+        if is_protected_admin and existing.role != "super_admin":
+            existing.role = "super_admin"
+            existing.active = True
         await db.commit()
         user = existing
     else:
-        # First user => super_admin, else customer
-        count = (await db.execute(select(func.count(M.User.user_id)))).scalar_one()
-        role = "super_admin" if count == 0 else "customer"
+        if is_protected_admin:
+            role = "super_admin"
+        else:
+            # First non-admin user with no admins yet => super_admin
+            count = (await db.execute(select(func.count(M.User.user_id)))).scalar_one()
+            role = "super_admin" if count == 0 else "customer"
         user = M.User(
             user_id=f"user_{uuid.uuid4().hex[:12]}",
             email=email,
@@ -97,7 +108,6 @@ async def auth_session(payload: SessionRequest, response: Response, db: AsyncSes
         db.add(user)
         await db.commit()
         await db.refresh(user)
-        # If customer, create customer record
         if user.role == "customer":
             db.add(M.Customer(user_id=user.user_id, name=user.name, email=user.email))
             await db.commit()

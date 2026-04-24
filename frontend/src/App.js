@@ -16,6 +16,7 @@ import Account from "@/pages/storefront/Account";
 import StorefrontLayout from "@/components/storefront/StorefrontLayout";
 
 import AdminLayout from "@/pages/admin/AdminLayout";
+import AdminLogin from "@/pages/AdminLogin";
 import Dashboard from "@/pages/admin/Dashboard";
 import AdminProducts from "@/pages/admin/Products";
 import AdminCategories from "@/pages/admin/Categories";
@@ -41,6 +42,7 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/admin/login" element={<AdminLogin />} />
       <Route path="/dashboard" element={<Dashboard_Redirect />} />
 
       <Route element={<StorefrontLayout />}>
