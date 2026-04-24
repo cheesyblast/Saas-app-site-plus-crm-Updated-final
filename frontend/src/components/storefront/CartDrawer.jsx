@@ -1,5 +1,5 @@
 import React from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetFooter } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { useCart } from "@/lib/cart";
 import { imgSrc, formatPrice } from "@/lib/api";
@@ -17,6 +17,7 @@ export default function CartDrawer() {
           <SheetTitle className="font-heading uppercase tracking-widest text-sm text-zinc-300">
             Cart ({count})
           </SheetTitle>
+          <SheetDescription className="sr-only">Your shopping cart contents</SheetDescription>
         </SheetHeader>
 
         <div className="flex-1 overflow-y-auto p-6 space-y-4">
