@@ -38,10 +38,33 @@ api = APIRouter(prefix="/api")
 
 
 # ---- Startup: ensure tables exist ----
+async def _ensure_rls_for_new_tables(conn):
+    """Apply RLS + default-deny policies only to tables that don't have RLS yet.
+    Cheap check (one SELECT) so startup stays fast. Run enable_rls.py manually
+    after major schema migrations to re-affirm policies.
+    """
+    from sqlalchemy import text
+    rows = (await conn.execute(text(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND rowsecurity = false"
+    ))).fetchall()
+    for (t,) in rows:
+        await conn.execute(text(f'ALTER TABLE public."{t}" ENABLE ROW LEVEL SECURITY;'))
+        await conn.execute(text(f'ALTER TABLE public."{t}" FORCE ROW LEVEL SECURITY;'))
+        await conn.execute(text(
+            f'CREATE POLICY service_role_all ON public."{t}" '
+            f'FOR ALL TO service_role USING (true) WITH CHECK (true);'
+        ))
+        await conn.execute(text(
+            f'CREATE POLICY deny_public ON public."{t}" '
+            f'FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);'
+        ))
+
+
 @app.on_event("startup")
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _ensure_rls_for_new_tables(conn)
     from database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
         stores = (await db.execute(select(M.Store))).scalars().all()
