@@ -162,7 +162,7 @@ export default function Checkout() {
               {items.map((i) => (
                 <div key={i.variant_id} className="flex gap-3 items-start">
                   <div className="w-14 h-16 border border-zinc-800 overflow-hidden flex-shrink-0 bg-zinc-900">
-                    {i.image && <img src={imgSrc({ data_base64: i.image, mime_type: i.image_mime })} alt="" className="w-full h-full object-cover" />}
+                    {i.image_url && <img src={imgSrc(i.image_url)} alt="" className="w-full h-full object-cover" loading="lazy" />}
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-semibold truncate">{i.name}</div>

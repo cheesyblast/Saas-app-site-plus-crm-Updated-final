@@ -38,8 +38,8 @@ export default function CartDrawer() {
           {items.map((i) => (
             <div key={i.variant_id} className="flex gap-4 border-b border-zinc-900 pb-4">
               <div className="w-20 h-24 bg-zinc-900 border border-zinc-800 flex-shrink-0 overflow-hidden">
-                {i.image ? (
-                  <img src={imgSrc({ data_base64: i.image, mime_type: i.image_mime })} alt={i.name} className="w-full h-full object-cover" />
+                {i.image_url ? (
+                  <img src={imgSrc(i.image_url)} alt={i.name} className="w-full h-full object-cover" loading="lazy" />
                 ) : (
                   <div className="w-full h-full bg-zinc-900" />
                 )}

@@ -12,9 +12,17 @@ export default api;
 
 export const imgSrc = (img) => {
   if (!img) return null;
-  if (typeof img === "string") return img.startsWith("data:") ? img : `data:image/png;base64,${img}`;
-  const mime = img.mime_type || "image/png";
-  return img.data_base64.startsWith("data:") ? img.data_base64 : `data:${mime};base64,${img.data_base64}`;
+  if (typeof img === "string") {
+    if (img.startsWith("data:") || img.startsWith("http") || img.startsWith("blob:")) return img;
+    if (img.startsWith("/")) return `${BACKEND_URL}${img}`;
+    return `data:image/png;base64,${img}`;
+  }
+  if (img.url) return `${BACKEND_URL}${img.url}`;
+  if (img.data_base64) {
+    const mime = img.mime_type || "image/png";
+    return img.data_base64.startsWith("data:") ? img.data_base64 : `data:${mime};base64,${img.data_base64}`;
+  }
+  return null;
 };
 
 export const formatPrice = (v) =>

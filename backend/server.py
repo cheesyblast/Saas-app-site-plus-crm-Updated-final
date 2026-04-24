@@ -233,18 +233,23 @@ async def product_to_dict(p: M.Product, db: AsyncSession, include_details: bool 
         "featured": p.featured,
         "created_at": p.created_at.isoformat(),
     }
-    # Always include primary image (thumbnail) for list views
     imgs_q = await db.execute(
-        select(M.ProductImage).where(M.ProductImage.product_id == p.id).order_by(M.ProductImage.sort_order)
+        select(M.ProductImage.id, M.ProductImage.mime_type, M.ProductImage.is_primary, M.ProductImage.sort_order)
+        .where(M.ProductImage.product_id == p.id)
+        .order_by(M.ProductImage.sort_order)
     )
-    imgs = imgs_q.scalars().all()
-    data["images"] = [
-        {"id": i.id, "data_base64": i.data_base64, "mime_type": i.mime_type, "is_primary": i.is_primary}
-        for i in imgs
-    ] if include_details else [
-        {"id": i.id, "data_base64": i.data_base64, "mime_type": i.mime_type, "is_primary": i.is_primary}
-        for i in imgs if i.is_primary
-    ] or ([{"id": imgs[0].id, "data_base64": imgs[0].data_base64, "mime_type": imgs[0].mime_type, "is_primary": True}] if imgs else [])
+    imgs = imgs_q.all()
+    if include_details:
+        data["images"] = [
+            {"id": i.id, "url": f"/api/images/{i.id}", "mime_type": i.mime_type, "is_primary": i.is_primary}
+            for i in imgs
+        ]
+    else:
+        primary = [i for i in imgs if i.is_primary] or (imgs[:1] if imgs else [])
+        data["images"] = [
+            {"id": i.id, "url": f"/api/images/{i.id}", "mime_type": i.mime_type, "is_primary": True}
+            for i in primary
+        ]
 
     if include_details:
         variants_q = await db.execute(select(M.Variant).where(M.Variant.product_id == p.id))
@@ -271,6 +276,44 @@ async def product_to_dict(p: M.Product, db: AsyncSession, include_details: bool 
     return data
 
 
+async def products_to_list(rows: list[M.Product], db: AsyncSession):
+    """Fast batch serializer for product listings — avoids N+1."""
+    if not rows:
+        return []
+    pids = [p.id for p in rows]
+    # Batch fetch images (id + meta only — base64 is served separately via /api/images/{id})
+    imgs_q = await db.execute(
+        select(M.ProductImage.id, M.ProductImage.product_id, M.ProductImage.mime_type, M.ProductImage.is_primary, M.ProductImage.sort_order)
+        .where(M.ProductImage.product_id.in_(pids))
+        .order_by(M.ProductImage.sort_order)
+    )
+    imgs_by_pid = {}
+    for i in imgs_q.all():
+        imgs_by_pid.setdefault(i.product_id, []).append(i)
+    # Batch fetch categories
+    cat_ids = list({p.category_id for p in rows if p.category_id})
+    cats = {}
+    if cat_ids:
+        for c in (await db.execute(select(M.Category).where(M.Category.id.in_(cat_ids)))).scalars().all():
+            cats[c.id] = {"id": c.id, "name": c.name, "slug": c.slug}
+    out = []
+    for p in rows:
+        pimgs = imgs_by_pid.get(p.id, [])
+        primary = [i for i in pimgs if i.is_primary] or (pimgs[:1] if pimgs else [])
+        out.append({
+            "id": p.id,
+            "name": p.name,
+            "slug": p.slug,
+            "base_price": p.base_price,
+            "compare_price": p.compare_price,
+            "featured": p.featured,
+            "status": p.status,
+            "category": cats.get(p.category_id),
+            "images": [{"id": i.id, "url": f"/api/images/{i.id}", "mime_type": i.mime_type, "is_primary": True} for i in primary],
+        })
+    return out
+
+
 @api.get("/products")
 async def list_products(
     db: AsyncSession = Depends(get_db),
@@ -290,7 +333,7 @@ async def list_products(
         q = q.where(M.Product.name.ilike(f"%{search}%"))
     q = q.order_by(desc(M.Product.created_at)).limit(limit)
     rows = (await db.execute(q)).scalars().all()
-    return [await product_to_dict(p, db, include_details=False) for p in rows]
+    return await products_to_list(rows, db)
 
 
 @api.get("/products/{slug}")
@@ -305,6 +348,29 @@ async def get_product(slug: str, db: AsyncSession = Depends(get_db)):
 async def admin_list_products(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
     rows = (await db.execute(select(M.Product).order_by(desc(M.Product.created_at)))).scalars().all()
     return [await product_to_dict(p, db, include_details=True) for p in rows]
+
+
+# ---- Binary Image streaming (fast, cacheable) ----
+import base64 as _b64
+from fastapi import Response as _Response
+
+
+@api.get("/images/{img_id}")
+async def stream_image(img_id: str, db: AsyncSession = Depends(get_db)):
+    row = (await db.execute(
+        select(M.ProductImage.data_base64, M.ProductImage.mime_type).where(M.ProductImage.id == img_id)
+    )).first()
+    if not row:
+        raise HTTPException(404, "Not found")
+    try:
+        raw = _b64.b64decode(row.data_base64)
+    except Exception:
+        raise HTTPException(500, "Corrupt image")
+    return _Response(
+        content=raw,
+        media_type=row.mime_type or "image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 async def _ensure_default_store(db: AsyncSession) -> M.Store:
