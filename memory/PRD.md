@@ -19,6 +19,15 @@ Build a full-stack online modern shopping website and ERP/CRM backend for a T-sh
 6. **Customer** — shops online
 
 ## What's Been Implemented (2026-02)
+### Page Builder (Tier 1) — NEW
+- `/admin/builder` admin module with section list (reorder via up/down, visibility toggle, edit, delete, add)
+- 6 section types: Hero, Featured Products (+ View All button below), Brand (with stats), Story, Reviews/Testimonials, Custom (heading+text / image hero / image+text)
+- Per-type editors with type-aware fields (Hero: headline size + height + image position + overlay opacity; Featured: max items + category filter + view-all button; Brand: stats + side image; Reviews: ratings + author; Custom: alignment + max width + padding)
+- MediaUploader component (file upload to /api/admin/media, returns CDN-style URL via /api/media/{id})
+- Theme settings: primary color, hover color, footer marquee phrases (live across storefront)
+- Storefront Home is now fully dynamic (`/api/page/home` → PageRenderer → section components)
+- Theme injected as CSS variables (`--theme-primary`, `--theme-primary-hover`) — buttons, eyebrows, accent borders all reactive
+
 ### Storefront (customer-facing)
 - Home with streetwear hero + featured drops + brand story
 - Shop listing with category filter + search
