@@ -19,8 +19,6 @@ export function AuthProvider({ children }) {
   }, []);
 
   useEffect(() => {
-    // CRITICAL: If returning from OAuth callback, skip the /me check.
-    // AuthCallback will exchange the session_id and establish the session first.
     if (typeof window !== "undefined" && window.location.hash?.includes("session_id=")) {
       setLoading(false);
       return;
@@ -28,22 +26,35 @@ export function AuthProvider({ children }) {
     checkAuth();
   }, [checkAuth]);
 
+  const loginWithPassword = async (email, password) => {
+    const { data } = await api.post("/auth/login", { email, password });
+    setUser(data.user);
+    return data.user;
+  };
+
+  const register = async (payload) => {
+    const { data } = await api.post("/auth/register", payload);
+    setUser(data.user);
+    return data.user;
+  };
+
   const logout = async () => {
-    try {
-      await api.post("/auth/logout");
-    } catch {}
+    try { await api.post("/auth/logout"); } catch {}
     setUser(null);
     window.location.href = "/";
   };
 
-  // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-  const login = () => {
+  // Customer Google login (Emergent OAuth)
+  const loginWithGoogle = () => {
     const redirectUrl = window.location.origin + "/dashboard";
     window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, checkAuth, logout, login, setUser }}>
+    <AuthContext.Provider value={{
+      user, loading, checkAuth, logout, setUser,
+      loginWithPassword, register, loginWithGoogle,
+    }}>
       {children}
     </AuthContext.Provider>
   );

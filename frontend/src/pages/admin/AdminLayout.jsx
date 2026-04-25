@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Outlet, NavLink, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
+import { useCompany, logoUrl } from "@/lib/company";
 import {
   LayoutDashboard, Package, Tag, Warehouse, ShoppingCart, Users, ScanLine,
   Store as StoreIcon, Ticket, DollarSign, Wallet, UserCog, BarChart3, Megaphone,
-  Bell, LogOut, ExternalLink, ChevronRight, Layout
+  Bell, LogOut, ExternalLink, Layout, Settings as SettingsIcon
 } from "lucide-react";
 
 const nav = [
@@ -24,10 +25,12 @@ const nav = [
   { to: "/admin/reports", label: "Reports", icon: BarChart3 },
   { to: "/admin/marketing", label: "Marketing", icon: Megaphone },
   { to: "/admin/notifications", label: "Notifications", icon: Bell },
+  { to: "/admin/settings", label: "Settings", icon: SettingsIcon },
 ];
 
 export default function AdminLayout() {
   const { user, loading, logout } = useAuth();
+  const { company } = useCompany();
   const n = useNavigate();
 
   useEffect(() => {
@@ -39,18 +42,22 @@ export default function AdminLayout() {
   if (!user || user.role === "customer") return null;
 
   const allowed = (item) => !item.roles || item.roles.includes(user.role);
+  const brandName = company?.company_name || "Admin";
+  const logo = logoUrl(company?.logo_light_id);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white flex">
       <aside className="w-64 flex-shrink-0 border-r border-zinc-900 bg-zinc-950 flex flex-col">
         <div className="px-6 py-6 border-b border-zinc-900">
           <Link to="/admin" className="block">
-            <div className="font-heading text-lg font-black tracking-tighter">
-              THREADLINE<span className="text-[#FF3B30]">.</span>
-            </div>
-            <div className="text-[9px] font-heading uppercase tracking-[0.3em] text-zinc-500 mt-1">
-              Control Room
-            </div>
+            {logo ? (
+              <img src={logo} alt={brandName} className="h-8 max-w-[170px] object-contain" />
+            ) : (
+              <div className="font-heading text-lg font-black tracking-tighter">
+                {brandName}<span className="text-[var(--theme-primary,#FF3B30)]">.</span>
+              </div>
+            )}
+            <div className="text-[9px] font-heading uppercase tracking-[0.3em] text-zinc-500 mt-1">Control Room</div>
           </Link>
         </div>
         <nav className="flex-1 overflow-y-auto py-4 space-y-0.5">
@@ -59,11 +66,11 @@ export default function AdminLayout() {
               key={item.to}
               to={item.to}
               end={item.exact}
-              data-testid={`admin-nav-${item.label.toLowerCase()}`}
+              data-testid={`admin-nav-${item.label.toLowerCase().replace(/\s+/g, "-")}`}
               className={({ isActive }) =>
                 `flex items-center gap-3 px-6 py-2.5 text-sm transition-colors border-l-2 ${
                   isActive
-                    ? "border-[#FF3B30] bg-zinc-900/60 text-white font-semibold"
+                    ? "border-[var(--theme-primary,#FF3B30)] bg-zinc-900/60 text-white font-semibold"
                     : "border-transparent text-zinc-400 hover:text-white hover:bg-zinc-900/40"
                 }`
               }
@@ -78,7 +85,7 @@ export default function AdminLayout() {
             {user.picture ? (
               <img src={user.picture} alt={user.name} className="h-8 w-8 border border-zinc-800" />
             ) : (
-              <div className="h-8 w-8 bg-zinc-800" />
+              <div className="h-8 w-8 bg-zinc-800 flex items-center justify-center text-xs font-bold">{user.name?.[0]}</div>
             )}
             <div className="min-w-0 flex-1">
               <div className="text-sm font-semibold truncate">{user.name}</div>
@@ -89,7 +96,7 @@ export default function AdminLayout() {
             <Link to="/" className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-widest py-1.5 border border-zinc-800 hover:border-zinc-600 text-zinc-300">
               <ExternalLink className="h-3 w-3" /> Shop
             </Link>
-            <button onClick={logout} className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-widest py-1.5 border border-zinc-800 hover:border-[#FF3B30] hover:text-[#FF3B30] text-zinc-300" data-testid="admin-logout-btn">
+            <button onClick={logout} className="flex items-center justify-center gap-1 text-[10px] uppercase tracking-widest py-1.5 border border-zinc-800 hover:border-[var(--theme-primary,#FF3B30)] hover:text-[var(--theme-primary,#FF3B30)] text-zinc-300" data-testid="admin-logout-btn">
               <LogOut className="h-3 w-3" /> Logout
             </button>
           </div>

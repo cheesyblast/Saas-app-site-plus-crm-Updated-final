@@ -9,11 +9,12 @@ export default function FeaturedSection({ config }) {
   const [items, setItems] = useState([]);
 
   useEffect(() => {
+    if (config?._resolvedProducts) { setItems(config._resolvedProducts); return; }
     const params = { limit: c.max_items || 8 };
-    if (c.category_slug) params.category = c.category_slug;
-    else params.featured = true;
+    if (c.category_slug && c.category_slug !== "_same_category") params.category = c.category_slug;
+    else if (!c.category_slug) params.featured = true;
     api.get("/products", { params }).then(({ data }) => setItems(data)).catch(() => {});
-  }, [c.max_items, c.category_slug]);
+  }, [c.max_items, c.category_slug, config?._resolvedProducts]);
 
   return (
     <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-24">

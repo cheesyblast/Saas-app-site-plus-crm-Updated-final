@@ -3,7 +3,6 @@ from datetime import datetime, timezone
 from sqlalchemy import (
     Column, String, Integer, Float, Boolean, DateTime, ForeignKey, Text, Index, JSON
 )
-from sqlalchemy.orm import relationship
 from database import Base
 
 
@@ -23,7 +22,8 @@ class User(Base):
     name = Column(String(255), nullable=False)
     picture = Column(Text, nullable=True)
     phone = Column(String(32), nullable=True)
-    # Role: customer, super_admin, manager, sales_staff, inventory_staff, accountant
+    password_hash = Column(String(255), nullable=True)  # bcrypt; null for OAuth-only customers
+    auth_provider = Column(String(16), default="password", nullable=False)  # password, google
     role = Column(String(32), nullable=False, default="customer", index=True)
     base_salary = Column(Float, nullable=True)
     active = Column(Boolean, default=True, nullable=False)
@@ -35,6 +35,54 @@ class UserSession(Base):
     session_token = Column(String(255), primary_key=True)
     user_id = Column(String(64), ForeignKey("users.user_id", ondelete="CASCADE"), index=True, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class LoginAttempt(Base):
+    __tablename__ = "login_attempts"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    identifier = Column(String(255), nullable=False, index=True)  # ip:email
+    attempts = Column(Integer, default=0, nullable=False)
+    locked_until = Column(DateTime(timezone=True), nullable=True)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+    token = Column(String(128), primary_key=True)
+    user_id = Column(String(64), ForeignKey("users.user_id", ondelete="CASCADE"), nullable=False)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+# ---- Company / Settings ----
+class CompanySettings(Base):
+    __tablename__ = "company_settings"
+    id = Column(String(16), primary_key=True, default="default")
+    company_name = Column(String(255), nullable=False, default="My Brand")
+    tagline = Column(String(255), nullable=True)
+    email = Column(String(255), nullable=True)
+    phone = Column(String(32), nullable=True)
+    address = Column(Text, nullable=True)
+    currency = Column(String(8), default="LKR", nullable=False)
+    logo_light_id = Column(String(64), nullable=True)  # for dark backgrounds
+    logo_dark_id = Column(String(64), nullable=True)   # for light backgrounds
+    favicon_id = Column(String(64), nullable=True)
+    setup_complete = Column(Boolean, default=False, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class IntegrationSetting(Base):
+    """SMTP / SendGrid / Brevo / Twilio / Notify.lk creds + active flag."""
+    __tablename__ = "integration_settings"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    kind = Column(String(16), nullable=False)  # email, sms
+    provider = Column(String(32), nullable=False)  # smtp, sendgrid, brevo, twilio, notifylk
+    label = Column(String(128), nullable=True)
+    config = Column(JSON, nullable=False, default=dict)  # provider-specific
+    active = Column(Boolean, default=False, nullable=False)
+    is_default = Column(Boolean, default=False, nullable=False)  # one per kind = default sender
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
@@ -59,8 +107,10 @@ class Product(Base):
     base_price = Column(Float, nullable=False, default=0.0)
     compare_price = Column(Float, nullable=True)
     sku = Column(String(64), nullable=True)
-    status = Column(String(16), default="active", nullable=False, index=True)  # active, draft, archived
+    status = Column(String(16), default="active", nullable=False, index=True)
     featured = Column(Boolean, default=False, nullable=False, index=True)
+    shipping_note = Column(Text, nullable=True)
+    returns_note = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
@@ -69,7 +119,8 @@ class ProductImage(Base):
     __tablename__ = "product_images"
     id = Column(String(64), primary_key=True, default=gen_uuid)
     product_id = Column(String(64), ForeignKey("products.id", ondelete="CASCADE"), index=True, nullable=False)
-    data_base64 = Column(Text, nullable=False)  # base64 string
+    color = Column(String(64), nullable=True, index=True)  # null = applies to all colors
+    data_base64 = Column(Text, nullable=False)
     mime_type = Column(String(32), default="image/png", nullable=False)
     is_primary = Column(Boolean, default=False, nullable=False)
     sort_order = Column(Integer, default=0, nullable=False)
@@ -114,7 +165,7 @@ class StockMovement(Base):
     id = Column(String(64), primary_key=True, default=gen_uuid)
     variant_id = Column(String(64), ForeignKey("variants.id", ondelete="CASCADE"), index=True, nullable=False)
     store_id = Column(String(64), ForeignKey("stores.id", ondelete="CASCADE"), index=True, nullable=False)
-    type = Column(String(16), nullable=False)  # in, out, adjust, sale
+    type = Column(String(16), nullable=False)  # in, out, adjust, sale, transfer_in, transfer_out
     quantity = Column(Integer, nullable=False)
     reason = Column(String(255), nullable=True)
     reference = Column(String(255), nullable=True)
@@ -129,8 +180,10 @@ class Customer(Base):
     user_id = Column(String(64), ForeignKey("users.user_id", ondelete="SET NULL"), nullable=True, index=True)
     name = Column(String(255), nullable=False)
     email = Column(String(255), nullable=True, index=True)
-    phone = Column(String(32), nullable=True)
+    phone = Column(String(32), nullable=True, index=True)
     address = Column(Text, nullable=True)
+    district = Column(String(64), nullable=True)
+    city = Column(String(128), nullable=True)
     notes = Column(Text, nullable=True)
     total_orders = Column(Integer, default=0, nullable=False)
     total_spent = Column(Float, default=0.0, nullable=False)
@@ -146,8 +199,10 @@ class Order(Base):
     customer_email = Column(String(255), nullable=True)
     customer_phone = Column(String(32), nullable=True)
     shipping_address = Column(Text, nullable=True)
-    status = Column(String(32), default="pending", nullable=False, index=True)  # pending, paid, processing, shipped, delivered, cancelled
-    payment_method = Column(String(32), default="mock", nullable=False)
+    shipping_district = Column(String(64), nullable=True)
+    shipping_city = Column(String(128), nullable=True)
+    status = Column(String(32), default="pending", nullable=False, index=True)
+    payment_method = Column(String(32), default="cod", nullable=False)
     payment_status = Column(String(32), default="pending", nullable=False)
     subtotal = Column(Float, nullable=False, default=0.0)
     discount = Column(Float, nullable=False, default=0.0)
@@ -156,8 +211,8 @@ class Order(Base):
     tax = Column(Float, nullable=False, default=0.0)
     total = Column(Float, nullable=False, default=0.0)
     store_id = Column(String(64), ForeignKey("stores.id", ondelete="SET NULL"), nullable=True)
-    created_by = Column(String(64), nullable=True)  # staff user_id for POS
-    source = Column(String(16), default="online", nullable=False)  # online or pos
+    created_by = Column(String(64), nullable=True)
+    source = Column(String(16), default="online", nullable=False)
     notes = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
 
@@ -180,10 +235,10 @@ class Coupon(Base):
     __tablename__ = "coupons"
     id = Column(String(64), primary_key=True, default=gen_uuid)
     code = Column(String(64), unique=True, nullable=False, index=True)
-    type = Column(String(16), default="percent", nullable=False)  # percent, fixed
+    type = Column(String(16), default="percent", nullable=False)
     value = Column(Float, nullable=False)
     min_order = Column(Float, default=0.0, nullable=False)
-    usage_limit = Column(Integer, default=0, nullable=False)  # 0 = unlimited
+    usage_limit = Column(Integer, default=0, nullable=False)
     used_count = Column(Integer, default=0, nullable=False)
     active = Column(Boolean, default=True, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=True)
@@ -212,7 +267,7 @@ class Payroll(Base):
     bonus = Column(Float, nullable=False, default=0.0)
     deduction = Column(Float, nullable=False, default=0.0)
     net = Column(Float, nullable=False, default=0.0)
-    status = Column(String(16), default="pending", nullable=False)  # pending, paid
+    status = Column(String(16), default="pending", nullable=False)
     paid_date = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
@@ -222,8 +277,8 @@ class MarketingCampaign(Base):
     __tablename__ = "marketing_campaigns"
     id = Column(String(64), primary_key=True, default=gen_uuid)
     name = Column(String(128), nullable=False)
-    channel = Column(String(32), nullable=False)  # email, sms, social, ads
-    status = Column(String(16), default="draft", nullable=False)  # draft, active, completed
+    channel = Column(String(32), nullable=False)
+    status = Column(String(16), default="draft", nullable=False)
     spend = Column(Float, default=0.0, nullable=False)
     revenue = Column(Float, default=0.0, nullable=False)
     reach = Column(Integer, default=0, nullable=False)
@@ -234,19 +289,20 @@ class MarketingCampaign(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
-# ---- Notifications (SMS/email log, mocked) ----
 class NotificationLog(Base):
     __tablename__ = "notification_logs"
     id = Column(String(64), primary_key=True, default=gen_uuid)
-    channel = Column(String(16), nullable=False)  # sms, email
+    channel = Column(String(16), nullable=False)
     to_address = Column(String(255), nullable=False)
     subject = Column(String(255), nullable=True)
     body = Column(Text, nullable=False)
     related_order = Column(String(64), nullable=True)
+    status = Column(String(16), default="sent", nullable=False)  # sent, failed, mocked
+    provider = Column(String(32), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
 
 
-# ---- Page Builder ----
+# ---- Page Builder / Pages ----
 class Media(Base):
     __tablename__ = "media"
     id = Column(String(64), primary_key=True, default=gen_uuid)
@@ -256,11 +312,24 @@ class Media(Base):
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
+class CustomPage(Base):
+    """Metadata for a builder-driven page. Sections live in PageSection keyed by `page` slug."""
+    __tablename__ = "custom_pages"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    slug = Column(String(64), unique=True, nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    is_system = Column(Boolean, default=False, nullable=False)  # home/header/footer/product/policies
+    show_in_header_menu = Column(Boolean, default=False, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    visible = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class PageSection(Base):
     __tablename__ = "page_sections"
     id = Column(String(64), primary_key=True, default=gen_uuid)
-    page = Column(String(32), default="home", nullable=False, index=True)
-    section_type = Column(String(32), nullable=False)  # hero, featured, brand, story, reviews, custom, marquee
+    page = Column(String(64), default="home", nullable=False, index=True)
+    section_type = Column(String(32), nullable=False)
     sort_order = Column(Integer, default=0, nullable=False)
     visible = Column(Boolean, default=True, nullable=False)
     config = Column(JSON, nullable=False, default=dict)
@@ -273,3 +342,30 @@ class ThemeSetting(Base):
     id = Column(String(32), primary_key=True, default="default")
     config = Column(JSON, nullable=False, default=dict)
     updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+# ---- Shipping & Payments (Sri Lanka) ----
+class ShippingRule(Base):
+    __tablename__ = "shipping_rules"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    district = Column(String(64), nullable=True, index=True)  # null = default fallback
+    city = Column(String(128), nullable=True, index=True)     # null = applies to all cities in district
+    fee = Column(Float, nullable=False, default=0.0)
+    free_above = Column(Float, nullable=True)  # subtotal threshold for free shipping
+    label = Column(String(128), nullable=True)
+    active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class PaymentMethod(Base):
+    __tablename__ = "payment_methods"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    code = Column(String(32), nullable=False)  # cod, payhere, cash, card_pos, bank_transfer
+    label = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    scope = Column(String(16), default="online", nullable=False, index=True)  # online, pos
+    active = Column(Boolean, default=True, nullable=False)
+    sort_order = Column(Integer, default=0, nullable=False)
+    config = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)

@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import api, { formatPrice } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
 
 const CATEGORIES = ["Rent", "Utilities", "Supplies", "Marketing", "Shipping", "Salaries", "Equipment", "Other"];
@@ -14,9 +14,10 @@ export default function Expenses() {
   const [rows, setRows] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ category: "Supplies", amount: 0, description: "" });
+  const [search, setSearch] = useState("");
 
-  const load = async () => setRows((await api.get("/admin/expenses")).data);
-  useEffect(() => { load(); }, []);
+  const load = async () => setRows((await api.get("/admin/expenses", { params: search?{q:search}:{} })).data);
+  useEffect(() => { const t=setTimeout(load,200); return () => clearTimeout(t); }, [search]);
 
   const save = async () => {
     try {
@@ -29,15 +30,16 @@ export default function Expenses() {
   const total = rows.reduce((s, e) => s + e.amount, 0);
 
   return (
-    <div className="space-y-6" data-testid="admin-expenses">
+    <div className="space-y-6 text-white" data-testid="admin-expenses">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="font-heading text-3xl sm:text-4xl font-black uppercase tracking-tighter">Expenses</h1>
           <p className="text-sm text-zinc-500 mt-1">Total logged: <span className="font-mono text-white">{formatPrice(total)}</span></p>
         </div>
-        <Button onClick={() => setOpen(true)} className="bg-[#FF3B30] hover:bg-[#D92D23] rounded-none uppercase tracking-widest font-bold">
-          <Plus className="h-4 w-4 mr-2" /> Log Expense
-        </Button>
+        <div className="flex items-center gap-3">
+          <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500"/><Input data-testid="expenses-search" placeholder="Search expense..." value={search} onChange={(e)=>setSearch(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none pl-9 w-56"/></div>
+          <Button onClick={() => setOpen(true)} className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold"><Plus className="h-4 w-4 mr-2" /> Log Expense</Button>
+        </div>
       </div>
       <div className="border border-zinc-900 overflow-x-auto">
         <table className="w-full text-sm">

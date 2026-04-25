@@ -13,15 +13,50 @@ export default function POS() {
   const [cart, setCart] = useState([]);
   const [q, setQ] = useState("");
   const [storeId, setStoreId] = useState("");
-  const [customer, setCustomer] = useState({ name: "Walk-in Customer", email: "", phone: "" });
+  const [customer, setCustomer] = useState({ id: null, name: "", email: "", phone: "" });
+  const [custSearch, setCustSearch] = useState("");
+  const [custResults, setCustResults] = useState([]);
   const [coupon, setCoupon] = useState("");
   const [payment, setPayment] = useState("cash");
+  const [paymentMethods, setPaymentMethods] = useState([]);
   const [processing, setProcessing] = useState(false);
 
   useEffect(() => {
     api.get("/admin/products").then(({ data }) => setProducts(data));
     api.get("/admin/stores").then(({ data }) => { setStores(data); if (data.length) setStoreId(data[0].id); });
+    api.get("/admin/payment-methods").then(({ data }) => {
+      const pos = data.filter(p => p.scope === "pos" && p.active);
+      setPaymentMethods(pos);
+      if (pos.length) setPayment(pos[0].code);
+    });
   }, []);
+
+  // Customer search debounce
+  useEffect(() => {
+    if (!custSearch || custSearch.length < 2) { setCustResults([]); return; }
+    const t = setTimeout(async () => {
+      const { data } = await api.get("/admin/customers", { params: { q: custSearch, limit: 8 } });
+      setCustResults(data);
+    }, 250);
+    return () => clearTimeout(t);
+  }, [custSearch]);
+
+  const pickCustomer = (c) => {
+    setCustomer({ id: c.id, name: c.name, email: c.email || "", phone: c.phone || "" });
+    setCustSearch(""); setCustResults([]);
+  };
+
+  const ensureCustomer = async () => {
+    if (customer.id) return customer.id;
+    if (!customer.name && !customer.phone) return null;  // walk-in
+    try {
+      const { data } = await api.post("/admin/customers", {
+        name: customer.name || "Walk-in", phone: customer.phone || null, email: customer.email || null,
+      });
+      setCustomer((c) => ({ ...c, id: data.id }));
+      return data.id;
+    } catch { return null; }
+  };
 
   const filtered = useMemo(() => {
     if (!q) return products;
@@ -127,12 +162,27 @@ export default function POS() {
           {cart.length === 0 && <div className="text-xs text-zinc-500 text-center py-8">Select products to add</div>}
         </div>
         <div className="border-t border-zinc-900 pt-3 space-y-2">
-          <Input placeholder="Customer name" value={customer.name} onChange={(e) => setCustomer({ ...customer, name: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs" />
-          <Input placeholder="Phone" value={customer.phone} onChange={(e) => setCustomer({ ...customer, phone: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs" />
+          <div className="relative">
+            <Input data-testid="pos-customer-search" placeholder="Search customer (name / phone)" value={custSearch} onChange={(e)=>setCustSearch(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs"/>
+            {custResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 z-10 border border-zinc-700 bg-zinc-900 max-h-52 overflow-y-auto">
+                {custResults.map(c => (
+                  <button key={c.id} type="button" onClick={()=>pickCustomer(c)} data-testid={`pick-customer-${c.id}`} className="w-full text-left p-2 text-xs hover:bg-zinc-800 border-b border-zinc-800">
+                    <div className="font-semibold">{c.name}</div>
+                    <div className="text-zinc-500">{c.phone || ""} {c.email||""}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <Input data-testid="pos-customer-name" placeholder="Customer name" value={customer.name} onChange={(e) => setCustomer({ ...customer, id:null, name: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs" />
+          <Input data-testid="pos-customer-phone" placeholder="Phone (auto-registers if new)" value={customer.phone} onChange={(e) => setCustomer({ ...customer, id:null, phone: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs" />
           <Input placeholder="Coupon" value={coupon} onChange={(e) => setCoupon(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs" />
           <Select value={payment} onValueChange={setPayment}>
-            <SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs"><SelectValue /></SelectTrigger>
-            <SelectContent className="bg-zinc-950 border-zinc-800 text-white"><SelectItem value="cash">Cash</SelectItem><SelectItem value="card">Card (Manual)</SelectItem><SelectItem value="mock">Mock Pay</SelectItem></SelectContent>
+            <SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs" data-testid="pos-payment-select"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              {paymentMethods.length === 0 ? <SelectItem value="cash">Cash</SelectItem> : paymentMethods.map(p=><SelectItem key={p.code} value={p.code}>{p.label}</SelectItem>)}
+            </SelectContent>
           </Select>
           <div className="flex justify-between text-sm pt-2">
             <span className="text-zinc-500 uppercase tracking-widest text-xs">Subtotal</span>

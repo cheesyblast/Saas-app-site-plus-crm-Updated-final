@@ -5,15 +5,16 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Pencil } from "lucide-react";
+import { Pencil, Search } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Customers() {
   const [rows, setRows] = useState([]);
   const [edit, setEdit] = useState(null);
+  const [search, setSearch] = useState("");
 
-  const load = async () => setRows((await api.get("/admin/customers")).data);
-  useEffect(() => { load(); }, []);
+  const load = async () => setRows((await api.get("/admin/customers", { params: search ? { q: search } : {} })).data);
+  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [search]);
 
   const save = async () => {
     try {
@@ -25,8 +26,14 @@ export default function Customers() {
   };
 
   return (
-    <div className="space-y-6" data-testid="admin-customers">
-      <h1 className="font-heading text-3xl sm:text-4xl font-black uppercase tracking-tighter">Customers</h1>
+    <div className="space-y-6 text-white" data-testid="admin-customers">
+      <div className="flex items-center justify-between flex-wrap gap-4">
+        <h1 className="font-heading text-3xl sm:text-4xl font-black uppercase tracking-tighter">Customers</h1>
+        <div className="relative w-full sm:w-80">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500"/>
+          <Input data-testid="customers-search" placeholder="Search by name, phone, email or order #..." value={search} onChange={(e)=>setSearch(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none pl-9"/>
+        </div>
+      </div>
       <div className="border border-zinc-900 overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="bg-zinc-900/60 text-xs uppercase tracking-widest text-zinc-400">

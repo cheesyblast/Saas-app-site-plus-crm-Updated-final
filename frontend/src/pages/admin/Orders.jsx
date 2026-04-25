@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from "react";
 import api, { formatPrice } from "@/lib/api";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Search } from "lucide-react";
 import { toast } from "sonner";
 
 const STATUSES = ["pending", "paid", "processing", "shipped", "delivered", "cancelled"];
@@ -10,14 +12,17 @@ const STATUSES = ["pending", "paid", "processing", "shipped", "delivered", "canc
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [status, setStatus] = useState("all");
+  const [search, setSearch] = useState("");
   const [view, setView] = useState(null);
 
   const load = async () => {
-    const params = status !== "all" ? { status } : {};
+    const params = {};
+    if (status !== "all") params.status = status;
+    if (search) params.q = search;
     const { data } = await api.get("/admin/orders", { params });
     setOrders(data);
   };
-  useEffect(() => { load(); }, [status]);
+  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [status, search]);
 
   const setOrderStatus = async (id, s) => {
     try {
@@ -28,16 +33,22 @@ export default function Orders() {
   };
 
   return (
-    <div className="space-y-6" data-testid="admin-orders">
+    <div className="space-y-6 text-white" data-testid="admin-orders">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="font-heading text-3xl sm:text-4xl font-black uppercase tracking-tighter">Orders</h1>
-        <Select value={status} onValueChange={setStatus}>
-          <SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none w-40"><SelectValue /></SelectTrigger>
-          <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
-            <SelectItem value="all">All Statuses</SelectItem>
-            {STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <div className="flex items-center gap-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500"/>
+            <Input data-testid="orders-search" placeholder="Order #, name, phone, email..." value={search} onChange={(e)=>setSearch(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none pl-9 w-72"/>
+          </div>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none w-40"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Statuses</SelectItem>
+              {STATUSES.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </div>
       </div>
 
       <div className="border border-zinc-900 overflow-x-auto">

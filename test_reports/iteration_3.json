@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 3 (Polo Shop v3 full feature set) — Backend: 23/23 pytest cases pass against the deployed preview URL. Frontend: All critical pages render correctly (storefront /, /shop, /page/shipping-policy, /admin/login, /admin (dashboard), /admin/builder, /admin/settings, /admin/inventory, /admin/customers, /admin/pos, /admin/products, /checkout, /register). JWT email/password login with httpOnly cookie works end-to-end (admin@demo.com/demo12345). Setup wizard idempotency (409) verified. Customer self-register (role=customer) works and is correctly blocked from /api/admin/* with 403. Shipping rule CRUD + /api/shipping/quote returns correct fee with free_above respected. Payment methods scope filtering (online/pos) works. Order numbers generated as ORD-YYYYMMDD-XXXXX. Page builder polo-shop-2 pages all return 200 (home, _header, _footer, shipping-policy, returns-policy). Custom pages list endpoint works.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/admin/expenses?q=...", "issue": "Search by 'q' parameter does not match expense title — list returns full set regardless. Filter likely not implemented or matches different field. Workaround: client filters list."},
+      {"endpoint": "POST /api/setup/init", "issue": "Schema is flat (company_name, admin_email, admin_password, admin_name) — readme/comments suggest nested {company:{...}, admin:{...}}. Either accept both shapes for forward-compat or document explicitly."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "All public pages", "issues": ["Unauthenticated visit logs 401 from /api/auth/me probe in console (functionally harmless but pollutes console). Same finding as iteration 2."]},
+      {"screen": "Admin Dashboard (/admin) initial load", "issues": ["Brief 'Loading…' flash before content paints (200-400ms) right after login redirect — acceptable but could be guarded by a skeleton state."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_polo_shop_v3.py",
+    "/app/backend/tests/test_page_builder.py",
+    "/app/backend/tests/backend_test.py",
+    "/app/test_reports/pytest/iter3_results.xml"
+  ],
+  "action_items": [
+    "(Optional) Implement ?q= search filter on GET /api/admin/expenses (currently ignored).",
+    "(Optional) Document /api/setup/init payload shape — flat keys (company_name/admin_email/admin_password/admin_name) — in OpenAPI/README so smoke-test agents don't pass nested objects."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now ~2000+ lines. Strongly recommended to split into routers (auth, setup, catalog, admin/products, admin/inventory, admin/customers, hr, marketing, page_builder, shipping, payments, integrations, custom_pages). This will be necessary for maintainability before any further phases.",
+    "Setup wizard endpoint accepts admin password via plain JSON body — ensure rate-limit + audit log is in place (currently no obvious throttle on /api/setup/init beyond the 409 short-circuit; pre-completion it could be brute-attacked).",
+    "JWT_SECRET is in backend/.env (good) but admin email default ADMIN_EMAILS=krishh.joes@gmail.com is environment-specific — should be removed from committed default.",
+    "/api/admin/* authorization checks rely on role string equality. Consider an Enum + a single dependency (e.g., require_role(*roles)) to avoid drift across endpoints.",
+    "PayHere is mocked (config saved, no charge) — clearly highlight 'MOCKED' in admin UI when payment method type=payhere is selected for production.",
+    "Email/SMS sending writes to notification_logs with status='mocked' — same: surface 'MOCKED' badge in /admin/notifications until real provider keys are saved.",
+    "/api/shipping/quote performs district+city lookup but does not return the rule_id used — adding it to the response payload would help debugging unexpected fees in production.",
+    "Customer dedup logic on POST /api/admin/customers happens server-side (good); however, dedup is by phone OR email — if both are provided and they match different customers, behavior is unspecified. Add explicit conflict resolution + 409 with both candidates.",
+    "Frontend logs two 401s on every public visit (auth/me probe). Wrap in try/silent or only call when a session_token cookie is present (document.cookie sniff).",
+    "No size limit visible on logo upload (Settings → Company logo light/dark). Enforce max 1MB per uploaded image (PNG/SVG) to prevent DB row bloat (logos are stored alongside other media as base64).",
+    "On a fresh DB after setup, /admin/inventory and dashboard look empty (no seed products) — consider an optional 'Seed sample data' button on the setup wizard or admin dashboard for first-run UX."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_polo_shop_v3.py (new — 23 pytests covering setup, JWT auth, customer register/dedup, locations, shipping quote, payment scopes, products/inventory, coupons, checkout, page builder, custom pages, integrations, stores, expenses)"
+  ],
+  "success_rate": {"backend": "100% (23/23)", "frontend": "100% on smoke-tested flows (12/12 pages render & critical interactions verified)"},
+  "test_credentials": "admin@demo.com / demo12345 (super_admin) — set up via wizard. Login sets httpOnly cookie 'session_token' + returns JWT in body.",
+  "seed_data_creation": "Test fixtures create+delete: 1 category, 1 product (2 variants), 1 shipping rule (Colombo), 1 shipping rule (Kandy), 1 payment method (POS), 1 coupon, 1 store, 1 expense, 1 custom page. All TEST_ prefixed and cleaned up at end of test run. Two checkout orders persist in DB (TEST_Order COD-Kandy, TEST_POS cash) — these decrement inventory and create stock movements but are not auto-deleted.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "DB has admin@demo.com (password demo12345). Setup is complete (returns 409 on re-init). No products are seeded by default — the catalog is empty until the admin creates them. Tests in test_polo_shop_v3.py create + clean up their own product/category/etc. fixtures, so re-runs are safe. Login test uses requests.Session() to capture httpOnly cookie. Customer register lowercases email. All admin endpoints expect cookie OR Bearer JWT (returned in /api/auth/login body). To wipe DB: python /app/backend/wipe_db.py.",
+  "rca of the issue": "No critical bugs found. Two minor backend findings: (1) /api/admin/expenses?q= search filter not wired (returns unfiltered list) — likely missing in expenses CRUD endpoint; (2) /api/setup/init schema is flat, not nested as some agent docs implied — purely a documentation/contract issue. Frontend smoke tests covered all 8 phase deliverables (A-H) and all rendered correctly with no console errors beyond the known 401-auth-me-probe noise on public pages."
+}

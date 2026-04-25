@@ -3,10 +3,7 @@ import axios from "axios";
 export const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export const API = `${BACKEND_URL}/api`;
 
-const api = axios.create({
-  baseURL: API,
-  withCredentials: true,
-});
+const api = axios.create({ baseURL: API, withCredentials: true });
 
 export default api;
 
@@ -25,5 +22,11 @@ export const imgSrc = (img) => {
   return null;
 };
 
-export const formatPrice = (v) =>
-  typeof v === "number" ? `$${v.toFixed(2)}` : "$0.00";
+let _currency = "LKR";
+export const setCurrency = (c) => { _currency = c || "LKR"; };
+const symbolMap = { USD: "$", EUR: "€", GBP: "£", LKR: "Rs ", INR: "₹", AUD: "A$" };
+export const formatPrice = (v) => {
+  if (typeof v !== "number") return `${symbolMap[_currency] || _currency + " "}0.00`;
+  const s = symbolMap[_currency] || `${_currency} `;
+  return `${s}${v.toFixed(2)}`;
+};

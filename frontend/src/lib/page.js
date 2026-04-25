@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import api from "@/lib/api";
 
 export function usePage(pageName = "home") {
-  const [data, setData] = useState({ sections: [], theme: null });
+  const [data, setData] = useState({ sections: [], theme: null, meta: null });
   const [loading, setLoading] = useState(true);
 
   const refresh = useCallback(async () => {
@@ -10,7 +10,7 @@ export function usePage(pageName = "home") {
       const { data } = await api.get(`/page/${pageName}`);
       setData(data);
     } catch {
-      setData({ sections: [], theme: null });
+      setData({ sections: [], theme: null, meta: null });
     } finally {
       setLoading(false);
     }

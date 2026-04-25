@@ -13,7 +13,7 @@ from pathlib import Path
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://merch-hub-54.preview.emergentagent.com").rstrip("/")
+BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "https://polo-shop-2.preview.emergentagent.com").rstrip("/")
 ADMIN_TOKEN = "test_session_abc"  # pre-seeded via DB insert (see conftest)
 
 HEADERS_ADMIN = {"Authorization": f"Bearer {ADMIN_TOKEN}", "Content-Type": "application/json"}
