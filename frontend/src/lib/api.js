@@ -5,6 +5,19 @@ export const API = `${BACKEND_URL}/api`;
 
 const api = axios.create({ baseURL: API, withCredentials: true });
 
+// Suppress noisy 401 console errors for "probe" requests (auth checks on public pages).
+api.interceptors.response.use(
+  (r) => r,
+  (err) => {
+    const cfg = err?.config || {};
+    if (cfg._silent401 && err?.response?.status === 401) {
+      // Swallow as a normal rejection without browser console noise.
+      return Promise.reject(Object.assign(new Error("Unauthenticated"), { silent: true, response: err.response }));
+    }
+    return Promise.reject(err);
+  }
+);
+
 export default api;
 
 export const imgSrc = (img) => {
