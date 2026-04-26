@@ -26,8 +26,14 @@ export default function POS() {
   const [processing, setProcessing] = useState(false);
   const [lastOrder, setLastOrder] = useState(null); // {order_number, total}
 
+  // Load products filtered by store stock — re-fetch when storeId changes
   useEffect(() => {
-    api.get("/admin/products", { params: { page: 1, page_size: 100 } }).then(({ data }) => setProducts(data.items || []));
+    if (!storeId) return;
+    api.get("/admin/products", { params: { page: 1, page_size: 200, store_id: storeId, in_stock: true } })
+       .then(({ data }) => setProducts(data.items || []));
+  }, [storeId]);
+
+  useEffect(() => {
     api.get("/admin/stores").then(({ data }) => { setStores(data); if (data.length) setStoreId(data[0].id); });
     api.get("/admin/payment-methods").then(({ data }) => {
       const pos = (data || []).filter(p => p.scope === "pos" && p.active);
@@ -142,15 +148,15 @@ export default function POS() {
                 <div className="text-[10px] text-zinc-500 font-mono">{formatPrice(p.base_price)}</div>
                 <div className="flex flex-wrap gap-1 mt-2">
                   {(p.variants || []).map((v) => (
-                    <button key={v.id} onClick={() => add(p, v)} className="text-[10px] border border-zinc-800 hover:border-[#FF3B30] hover:text-[#FF3B30] px-2 py-0.5 uppercase tracking-widest" data-testid={`pos-add-${v.id}`}>
-                      {v.size}{v.color ? `/${v.color}` : ""}
+                    <button key={v.id} onClick={() => add(p, v)} title={`Stock: ${v.stock ?? "?"}`} className="text-[10px] border border-zinc-800 hover:border-[#FF3B30] hover:text-[#FF3B30] px-2 py-0.5 uppercase tracking-widest" data-testid={`pos-add-${v.id}`}>
+                      {v.size}{v.color ? `/${v.color}` : ""}{typeof v.stock === "number" ? ` · ${v.stock}` : ""}
                     </button>
                   ))}
                 </div>
               </div>
             </div>
           ))}
-          {filtered.length === 0 && <div className="col-span-full p-12 text-center text-zinc-500 border border-zinc-900">No products</div>}
+          {filtered.length === 0 && <div className="col-span-full p-12 text-center text-zinc-500 border border-zinc-900">No products in stock at this store. Use Inventory to move stock here, or pick a different store.</div>}
         </div>
       </div>
 

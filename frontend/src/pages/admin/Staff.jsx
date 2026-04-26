@@ -11,7 +11,14 @@ import { useAuth } from "@/lib/auth";
 import { toast } from "sonner";
 
 const ROLES = ["super_admin", "manager", "sales_staff", "inventory_staff", "accountant"];
-const PERMS = ["products", "orders", "pos", "inventory", "customers", "suppliers", "reports", "accounting", "marketing", "settings"];
+const PERMS = ["products", "orders", "pos", "inventory", "customers", "suppliers", "reports", "accounting", "marketing", "settings", "move_stocks", "manual_inc_exp"];
+const PERM_LABEL = {
+  products: "Products", orders: "Orders", pos: "POS", inventory: "Inventory",
+  customers: "Customers", suppliers: "Suppliers", reports: "Reports",
+  accounting: "Accounting", marketing: "Marketing", settings: "Settings",
+  move_stocks: "Move stocks (transfers / adjustments)",
+  manual_inc_exp: "Add manual Income / Expense",
+};
 const empty = { user_id: null, email: "", name: "", phone: "", role: "sales_staff", base_salary: 0, active: true, password: "", permissions: PERMS.reduce((a,p)=>{a[p]=false;return a;},{}) };
 
 export default function Staff() {
@@ -115,7 +122,7 @@ export default function Staff() {
                   {PERMS.map(p => (
                     <label key={p} className="flex items-center gap-2 text-xs">
                       <input type="checkbox" data-testid={`perm-${p}`} checked={!!(form.permissions || {})[p]} onChange={() => togglePerm(p)} className="accent-[#FF3B30]"/>
-                      <span className="capitalize">{p}</span>
+                      <span>{PERM_LABEL[p] || p}</span>
                     </label>
                   ))}
                 </div>

@@ -770,7 +770,8 @@ async def get_product(slug: str, db: AsyncSession = Depends(get_db)):
 
 @api.get("/admin/products")
 async def admin_list_products(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
-                               q: Optional[str] = None, page: int = 1, page_size: int = 50):
+                               q: Optional[str] = None, page: int = 1, page_size: int = 50,
+                               store_id: Optional[str] = None, in_stock: bool = False):
     base = select(M.Product)
     if q:
         base = base.where(or_(M.Product.name.ilike(f"%{q}%"), M.Product.sku.ilike(f"%{q}%")))
@@ -778,6 +779,23 @@ async def admin_list_products(db: AsyncSession = Depends(get_db), _: M.User = De
     page_size = min(max(1, page_size), 100); page = max(1, page)
     rows = (await db.execute(base.order_by(desc(M.Product.created_at)).offset((page-1)*page_size).limit(page_size))).scalars().all()
     items = [await product_to_dict(p, db, include_details=True) for p in rows]
+    # Optional store-stock filter (used by POS): only keep variants with positive stock at the chosen store
+    if store_id and in_stock:
+        invs = (await db.execute(select(M.Inventory).where(M.Inventory.store_id == store_id))).scalars().all()
+        stock_map = {iv.variant_id: iv.quantity for iv in invs}
+        filtered = []
+        for p in items:
+            keep_variants = []
+            for v in p.get("variants", []):
+                qty = stock_map.get(v["id"], 0)
+                v["stock"] = qty
+                if qty > 0:
+                    keep_variants.append(v)
+            if keep_variants:
+                p["variants"] = keep_variants
+                filtered.append(p)
+        items = filtered
+        total = len(items)
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -1015,7 +1033,7 @@ class TransferIn(BaseModel):
 
 
 @api.post("/admin/inventory/transfer")
-async def transfer_stock(payload: TransferIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_admin)):
+async def transfer_stock(payload: TransferIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_perm("move_stocks"))):
     if payload.from_store_id == payload.to_store_id:
         raise HTTPException(400, "Same source and destination")
     if payload.quantity <= 0:
@@ -1392,6 +1410,40 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
     else:
         payment_status = "pending"; order_status = "pending"
 
+    # Auto-pick a cash/bank account if the caller didn't supply one (POS source) or for COD
+    # (so admins don't need to remember when accounting is enforced).
+    target_account_id = payload.cash_account_id
+    if not target_account_id:
+        wanted_kind = "cash" if payload.payment_method == "cash" else "bank"
+        # 1) account bound to the chosen store
+        if store_id:
+            cand = (await db.execute(select(M.CashAccount).where(and_(
+                M.CashAccount.store_id == store_id, M.CashAccount.kind == wanted_kind,
+                M.CashAccount.active == True,
+            )))).scalars().first()
+            if cand:
+                target_account_id = cand.id
+        # 2) for online orders, account bound to the online store
+        if not target_account_id and payload.source == "online":
+            online = (await db.execute(select(M.Store).where(M.Store.is_online == True))).scalars().first()
+            if online:
+                cand = (await db.execute(select(M.CashAccount).where(and_(
+                    M.CashAccount.store_id == online.id, M.CashAccount.kind == wanted_kind,
+                    M.CashAccount.active == True,
+                )))).scalars().first()
+                if cand:
+                    target_account_id = cand.id
+    # Pre-flight: instant-paid orders REQUIRE a destination account so we can credit it.
+    # Pending COD orders may proceed without one (admin completes via Cash Received later).
+    if payment_status == "paid" and not target_account_id:
+        store_label = "the selected store"
+        if payload.source == "online":
+            store_label = "the online store"
+        elif store_id:
+            st = (await db.execute(select(M.Store).where(M.Store.id == store_id))).scalar_one_or_none()
+            if st: store_label = st.name
+        raise HTTPException(400, f"No active cash/bank account configured for {store_label}. Add one in Cash & Bank first.")
+
     cash_tendered = payload.cash_tendered
     cash_change = None
     if payload.payment_method == "cash" and cash_tendered is not None:
@@ -1406,7 +1458,7 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
         subtotal=subtotal, discount=discount, coupon_code=coupon.code if coupon else None,
         shipping=shipping_fee, total=total, store_id=store_id,
         cash_tendered=cash_tendered, cash_change=cash_change,
-        card_last4=payload.card_last4, cash_account_id=payload.cash_account_id,
+        card_last4=payload.card_last4, cash_account_id=target_account_id,
         created_by=user.user_id if user else None, source=payload.source, notes=payload.notes,
     )
     db.add(order); await db.flush()
@@ -1423,8 +1475,8 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
     customer.total_orders += 1
     customer.total_spent += total
     # Cash ledger: log instant-paid orders to cash account if specified
-    if payment_status == "paid" and payload.cash_account_id:
-        ca = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == payload.cash_account_id))).scalar_one_or_none()
+    if payment_status == "paid" and target_account_id:
+        ca = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == target_account_id))).scalar_one_or_none()
         if ca:
             ca.balance += total
             db.add(M.CashLedger(cash_account_id=ca.id, direction="in", amount=total,
@@ -1505,19 +1557,54 @@ async def update_order_status(oid: str, payload: OrderStatusIn, db: AsyncSession
 
 
 @api.post("/admin/orders/{oid}/cash-received")
-async def mark_cash_received(oid: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+async def mark_cash_received(oid: str, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_admin)):
     o = (await db.execute(select(M.Order).where(M.Order.id == oid))).scalar_one_or_none()
     if not o:
         raise HTTPException(404, "Not found")
     if o.status == "completed":
         raise HTTPException(400, "Order already completed.")
+    # Resolve cash account: prefer the order.cash_account_id (set at checkout), else auto-pick
+    # the first active CASH account bound to the order's store, else any cash account on the
+    # online store. Refuse to complete if no account is configured (per business rule).
+    target = None
+    if o.cash_account_id:
+        target = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == o.cash_account_id))).scalar_one_or_none()
+    if not target and o.store_id:
+        target = (await db.execute(select(M.CashAccount).where(and_(
+            M.CashAccount.store_id == o.store_id, M.CashAccount.kind == "cash", M.CashAccount.active == True
+        )))).scalars().first()
+    if not target:
+        # fallback: first active cash account on the online store
+        online = (await db.execute(select(M.Store).where(M.Store.is_online == True))).scalars().first()
+        if online:
+            target = (await db.execute(select(M.CashAccount).where(and_(
+                M.CashAccount.store_id == online.id, M.CashAccount.kind == "cash", M.CashAccount.active == True
+            )))).scalars().first()
+    if not target:
+        raise HTTPException(400, "No cash account configured for this store. Add one in Cash & Bank first.")
     o.payment_status = "paid"
     o.status = "completed"
+    o.cash_account_id = target.id
+    target.balance += o.total
+    db.add(M.CashLedger(cash_account_id=target.id, direction="in", amount=o.total,
+                         source_kind="order", source_id=o.id,
+                         notes=f"COD received · {o.order_number}", created_by=user.user_id))
     if o.customer_email:
         await _log_notification(db, "email", o.customer_email, f"Order {o.order_number} completed",
                                  f"Cash received. Order {o.order_number} is now complete. Thank you.", o.id)
     await db.commit()
-    return {"ok": True, "status": o.status, "payment_status": o.payment_status}
+    return {"ok": True, "status": o.status, "payment_status": o.payment_status,
+            "credited_account_id": target.id, "credited_account_name": target.name}
+
+
+# ========== ORDER STATS (sidebar badge) ==========
+@api.get("/admin/orders/stats")
+async def order_stats(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    pending = (await db.execute(select(func.count()).select_from(
+        select(M.Order).where(M.Order.status == "pending").subquery()))).scalar_one()
+    processing = (await db.execute(select(func.count()).select_from(
+        select(M.Order).where(M.Order.status == "processing").subquery()))).scalar_one()
+    return {"pending": pending or 0, "processing": processing or 0}
 
 
 # ========== CUSTOMERS ==========
@@ -1702,7 +1789,7 @@ async def list_expenses(db: AsyncSession = Depends(get_db), _: M.User = Depends(
 
 
 @api.post("/admin/expenses")
-async def create_expense(payload: ExpenseIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_admin)):
+async def create_expense(payload: ExpenseIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_perm("manual_inc_exp"))):
     e = M.Expense(**payload.model_dump(exclude_unset=True))
     e.created_by = user.user_id
     if not e.expense_date:
@@ -2328,7 +2415,7 @@ async def list_income(db: AsyncSession = Depends(get_db), _: M.User = Depends(re
 
 
 @api.post("/admin/income")
-async def create_income(payload: IncomeIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_admin)):
+async def create_income(payload: IncomeIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_perm("manual_inc_exp"))):
     i = M.Income(**payload.model_dump(exclude_unset=True))
     i.created_by = user.user_id
     if not i.income_date:
@@ -2546,25 +2633,37 @@ async def public_receipt(order_number: str, db: AsyncSession = Depends(get_db)):
 
 
 # ========== CSV IMPORT (Products + Inventory) ==========
-class ProductCsvRow(BaseModel):
-    name: str
-    sku: Optional[str] = None
-    base_price: float = 0
-    compare_price: Optional[float] = None
-    cost_price: Optional[float] = None
-    category: Optional[str] = None  # by name; resolved
-    description: Optional[str] = None
-    size: Optional[str] = None
-    color: Optional[str] = None
-    color_hex: Optional[str] = None
-    stock: int = 0
-    featured: bool = False
-    status: str = "active"
-
-
 class CsvImportIn(BaseModel):
     rows: List[dict]  # parsed CSV rows
     commit: bool = False  # if False, dry-run for preview
+
+
+def _csv_clean(v):
+    """Treat empty string / None as 'not provided'."""
+    if v is None:
+        return None
+    s = str(v).strip()
+    return s if s else None
+
+
+def _csv_float(v):
+    s = _csv_clean(v)
+    if s is None: return None
+    try: return float(s)
+    except ValueError: return None
+
+
+def _csv_int(v):
+    s = _csv_clean(v)
+    if s is None: return None
+    try: return int(float(s))
+    except ValueError: return None
+
+
+def _csv_bool(v):
+    s = _csv_clean(v)
+    if s is None: return None
+    return s.lower() in ("true", "1", "yes", "y", "t")
 
 
 @api.post("/admin/import/products")
@@ -2572,85 +2671,96 @@ async def import_products(payload: CsvImportIn, db: AsyncSession = Depends(get_d
     """Bulk import products + first variant + initial inventory.
     Each row: name, sku, base_price, compare_price, cost_price, category(name), description,
               size, color, color_hex, stock, featured, status.
-    Existing product (matched by name+sku) updates the variant by size/color and adjusts inventory.
+    Empty fields are skipped — only what's provided is updated.
+    Existing product (matched by sku then name) updates the variant by size/color and adjusts inventory.
     """
     cats_by_name = {c.name.lower(): c for c in (await db.execute(select(M.Category))).scalars().all()}
+    suppliers_by_name = {s.name.lower(): s for s in (await db.execute(select(M.Supplier))).scalars().all()}
     store = await _ensure_default_store(db)
     summary = {"created": 0, "updated": 0, "errors": []}
     preview = []
     for idx, raw in enumerate(payload.rows, start=1):
         try:
-            row = ProductCsvRow(
-                name=str(raw.get("name", "")).strip(),
-                sku=(raw.get("sku") or None),
-                base_price=float(raw.get("base_price") or 0),
-                compare_price=float(raw["compare_price"]) if raw.get("compare_price") else None,
-                cost_price=float(raw["cost_price"]) if raw.get("cost_price") else None,
-                category=(raw.get("category") or None),
-                description=(raw.get("description") or None),
-                size=(raw.get("size") or None),
-                color=(raw.get("color") or None),
-                color_hex=(raw.get("color_hex") or None),
-                stock=int(raw.get("stock") or 0),
-                featured=bool(raw.get("featured") in (True, "true", "1", 1, "TRUE")),
-                status=(raw.get("status") or "active"),
-            )
-            if not row.name:
-                raise ValueError("Missing name")
-            cat = cats_by_name.get((row.category or "").lower()) if row.category else None
-            cat_id = cat.id if cat else None
+            name = _csv_clean(raw.get("name"))
+            sku = _csv_clean(raw.get("sku"))
+            if not name and not sku:
+                raise ValueError("Row needs at least 'name' or 'sku'")
+            base_price = _csv_float(raw.get("base_price"))
+            compare_price = _csv_float(raw.get("compare_price"))
+            cost_price = _csv_float(raw.get("cost_price"))
+            category_name = _csv_clean(raw.get("category"))
+            supplier_name = _csv_clean(raw.get("supplier"))
+            description = _csv_clean(raw.get("description"))
+            size = _csv_clean(raw.get("size"))
+            color = _csv_clean(raw.get("color"))
+            color_hex = _csv_clean(raw.get("color_hex"))
+            stock = _csv_int(raw.get("stock"))
+            featured = _csv_bool(raw.get("featured"))
+            status_v = _csv_clean(raw.get("status"))
+            cat = cats_by_name.get(category_name.lower()) if category_name else None
+            sup = suppliers_by_name.get(supplier_name.lower()) if supplier_name else None
             existing = None
-            if row.sku:
-                existing = (await db.execute(select(M.Product).where(M.Product.sku == row.sku))).scalar_one_or_none()
-            if not existing:
-                existing = (await db.execute(select(M.Product).where(M.Product.name == row.name))).scalar_one_or_none()
+            if sku:
+                existing = (await db.execute(select(M.Product).where(M.Product.sku == sku))).scalar_one_or_none()
+            if not existing and name:
+                existing = (await db.execute(select(M.Product).where(M.Product.name == name))).scalar_one_or_none()
             if existing:
                 p = existing
-                p.base_price = row.base_price
-                p.compare_price = row.compare_price
-                p.cost_price = row.cost_price
-                p.sku = row.sku or p.sku
-                p.category_id = cat_id or p.category_id
-                p.featured = row.featured
-                p.status = row.status
-                if row.description: p.description = row.description
+                # Partial update: only override fields that were actually provided
+                if name is not None: p.name = name
+                if sku is not None: p.sku = sku
+                if base_price is not None: p.base_price = base_price
+                if compare_price is not None: p.compare_price = compare_price
+                if cost_price is not None: p.cost_price = cost_price
+                if cat: p.category_id = cat.id
+                if sup: p.supplier_id = sup.id
+                if description is not None: p.description = description
+                if featured is not None: p.featured = featured
+                if status_v is not None: p.status = status_v
+                p.updated_at = datetime.now(timezone.utc)
                 action = "updated"
             else:
-                slug = slugify(row.name) + "-" + uuid.uuid4().hex[:4]
-                p = M.Product(name=row.name, slug=slug, description=row.description,
-                              category_id=cat_id, base_price=row.base_price,
-                              compare_price=row.compare_price, cost_price=row.cost_price,
-                              sku=row.sku, status=row.status, featured=row.featured)
+                # New product needs a name
+                if not name:
+                    raise ValueError("New product requires 'name'")
+                slug = slugify(name) + "-" + uuid.uuid4().hex[:4]
+                p = M.Product(
+                    name=name, slug=slug, description=description,
+                    category_id=cat.id if cat else None,
+                    supplier_id=sup.id if sup else None,
+                    base_price=base_price if base_price is not None else 0.0,
+                    compare_price=compare_price, cost_price=cost_price,
+                    sku=sku, status=status_v or "active",
+                    featured=bool(featured) if featured is not None else False,
+                )
                 db.add(p)
                 await db.flush()
                 action = "created"
-            preview.append({"row": idx, "name": row.name, "action": action, "size": row.size, "color": row.color, "stock": row.stock})
+            preview.append({"row": idx, "name": p.name, "sku": p.sku, "action": action,
+                            "size": size, "color": color, "stock": stock if stock is not None else "—"})
+            if action == "created": summary["created"] += 1
+            else: summary["updated"] += 1
             if not payload.commit:
                 continue
             # Variant + inventory
-            v = None
-            if row.size or row.color:
-                vq = select(M.Variant).where(and_(M.Variant.product_id == p.id, M.Variant.size == row.size, M.Variant.color == row.color))
+            if size or color:
+                vq = select(M.Variant).where(and_(M.Variant.product_id == p.id, M.Variant.size == size, M.Variant.color == color))
                 v = (await db.execute(vq)).scalar_one_or_none()
                 if not v:
-                    v = M.Variant(product_id=p.id, size=row.size, color=row.color, color_hex=row.color_hex)
+                    v = M.Variant(product_id=p.id, size=size, color=color, color_hex=color_hex)
                     db.add(v); await db.flush()
                 else:
-                    if row.color_hex: v.color_hex = row.color_hex
-                inv = (await db.execute(select(M.Inventory).where(and_(M.Inventory.variant_id == v.id, M.Inventory.store_id == store.id)))).scalar_one_or_none()
-                if inv:
-                    inv.quantity = row.stock
-                else:
-                    db.add(M.Inventory(variant_id=v.id, store_id=store.id, quantity=row.stock))
-            if action == "created":
-                summary["created"] += 1
-            else:
-                summary["updated"] += 1
+                    if color_hex: v.color_hex = color_hex
+                if stock is not None:
+                    inv = (await db.execute(select(M.Inventory).where(and_(
+                        M.Inventory.variant_id == v.id, M.Inventory.store_id == store.id)))).scalar_one_or_none()
+                    if inv:
+                        inv.quantity = stock
+                    else:
+                        db.add(M.Inventory(variant_id=v.id, store_id=store.id, quantity=stock))
         except Exception as e:
             summary["errors"].append({"row": idx, "error": str(e)})
-            if payload.commit:
-                # rollback this row by skipping; SQLAlchemy session is flushed; let it commit at the end
-                continue
+            continue
     if payload.commit:
         await db.commit()
     else:
@@ -2660,9 +2770,9 @@ async def import_products(payload: CsvImportIn, db: AsyncSession = Depends(get_d
 
 @api.get("/admin/import/products/template")
 async def products_csv_template():
-    csv = "name,sku,base_price,compare_price,cost_price,category,description,size,color,color_hex,stock,featured,status\n"
-    csv += 'Sample Tee,TS-001,2500,3000,1500,Tees,A soft cotton tee.,M,Black,#000000,12,false,active\n'
-    csv += 'Sample Tee,TS-001,2500,3000,1500,Tees,A soft cotton tee.,L,White,#ffffff,8,false,active\n'
+    csv = "name,sku,base_price,compare_price,cost_price,category,supplier,description,size,color,color_hex,stock,featured,status\n"
+    csv += 'Sample Tee,TS-001,2500,3000,1500,Tees,,A soft cotton tee.,M,Black,#000000,12,false,active\n'
+    csv += 'Sample Tee,TS-001,,,,,,,L,White,#ffffff,8,,\n'
     return FastResponse(content=csv, media_type="text/csv",
                         headers={"Content-Disposition": 'attachment; filename="products_template.csv"'})
 

@@ -1,0 +1,38 @@
+{
+  "summary": "Iteration 6 backend+frontend smoke. 14/15 pytests pass (1 skipped because a previously-completed order was still in DB), 1 FAIL — POST /api/admin/stock-movements is gated by require_admin instead of require_perm('move_stocks'), so any sales_staff with move_stocks=false can still create stock movements (security/permission bypass against iter6 spec). All other iter6 backend behaviours verified: POS in_stock filter correctly returns only stocked variants with v.stock int field; /admin/orders/stats returns int pending+processing; checkout pre-flight rejects instant-paid (cash) orders with no resolvable account (HTTP 400, detail starts 'No active cash/bank account configured'); COD online checkout stays pending then /admin/orders/{oid}/cash-received auto-credits the FIRST active cash account on the online store, returns credited_account_id/name, creates CashLedger 'in' entry of full order.total, bumps CashAccount.balance, and flips order to status=completed/payment_status=paid; POS cash checkout (source=pos) auto-resolves the store cash account and writes 'in' ledger entry; transfer_stock + create_expense + create_income correctly return 403 'Missing permission: move_stocks' / 'manual_inc_exp' for staff w/o the perm and 200 for super_admin; CSV import dry-run on partial rows now bumps summary.created/updated > 0 (commit-button bug fixed for backend); commit on a {sku,name}-only row preserves base_price (partial update); commit creates new variants with size/color and stock at default store. Frontend smoke: admin login OK, sidebar restructured into collapsible groups — Inventory parent has chevron and expands to Products/Categories/Bulk Import, Inc & Exp + Staff parents collapsed with right-chevron, clicking parent label navigates to /admin/inventory (no nav on chevron only), Orders sidebar item shows red '3' pill with data-testid='orders-pending-badge' once pending orders exist (verified after seeding), POS page renders with store dropdown and only-stocked products + stock counts per variant + cash-account selector + CHECKOUT button, /admin/import shows COMMIT IMPORT button (data-testid='csv-commit-btn', disabled until preview rows present — correct), /admin/staff renders but my smoke could not auto-open the edit dialog with role=button name='Edit' (skipped — main agent should self-verify the new permission checkboxes 'Move stocks (transfers / adjustments)' and 'Add manual Income / Expense').",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/admin/stock-movements", "issue": "Still gated by require_admin instead of require_perm('move_stocks') — sales_staff with move_stocks=false successfully creates stock movements (200 + new_quantity). Iteration 6 spec explicitly requires this gate. Fix: change line 1007 of /app/backend/server.py from `user: M.User = Depends(require_admin)` to `user: M.User = Depends(require_perm('move_stocks'))`.", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter6_saas.py",
+    "/app/test_reports/pytest/iter6_results.xml"
+  ],
+  "action_items": [
+    "Change /app/backend/server.py line 1007 — gate create_stock_movement with require_perm('move_stocks') (mirrors transfer_stock at line 1036). One-word change; transfer/income/expense are already correctly gated.",
+    "(Optional) Manually verify the Staff edit dialog now lists 'Move stocks' and 'Add manual Income / Expense' checkboxes — testing-agent could not auto-open the dialog (no data-testid on the Edit button). Recommend adding data-testid='staff-edit-btn' for future regression."
+  ],
+  "critical_code_review_comments": [
+    "server.py line 1006-1007: create_stock_movement uses require_admin; spec required require_perm('move_stocks'). Active permission bypass for non-super_admin staff.",
+    "server.py is now 2789 lines — still well past the 700-line modularisation threshold flagged in iteration 5. Recommend splitting into routers (auth, catalog, orders, inventory, accounting, csv_import, etc.) before the next iteration.",
+    "checkout() pre-flight (line 1438-1445) only triggers for instant-paid methods, leaving COD/pending orders to defer the cash-account requirement to mark_cash_received — this is correct per spec but the user-facing error 'No active cash/bank account configured for {store_label}' is a 400 from /api/checkout; the storefront should ideally pre-validate via /api/cash-accounts to avoid late checkout failure (UX improvement).",
+    "mark_cash_received (line 1559) does not allow callers to specify a target cash account; auto-pick uses order.cash_account_id → order.store cash → online store cash. Reasonable v1, but if a store has multiple cash accounts the FIRST active one wins silently — flag in admin docs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter6_saas.py (new — 15 pytests covering all iter6 backend behaviours)"
+  ],
+  "success_rate": {"backend": "93% (13 passed / 15 collected; 1 skipped, 1 failed)", "frontend": "100% on smoke flows (sidebar groups + chevron, POS store filter + stock counts, pending badge, Bulk Import commit button presence)"},
+  "test_credentials": "admin@demo.com / demo12345 (super_admin). Test staff users created with TEST_iter6_staff_*@demo.com / Password!23.",
+  "seed_data_creation": "test_iter6_saas.py seeds: TEST_iter6_store_* (1 isolated test store with no cash accounts), TEST_iter6_OnlineCash / TEST_iter6_POSCash (cash accounts on online store, idempotent), TEST_iter6_staff_*@demo.com (sales_staff with move_stocks/manual_inc_exp = false), TEST_iter6_cod_buyer / pos_buyer / buyer (customers + orders), TEST_iter6_prod_* + TEST_iter6_dryNew_* (products from CSV import), TEST_iter6_admin_ok (income entry by super_admin). All entities are TEST_iter6_-prefixed for cleanup.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Re-run: pytest /app/backend/tests/test_iter6_saas.py -v. After main agent fixes the require_perm('move_stocks') gate on POST /admin/stock-movements, all 14 non-skipped tests should pass. The skipped 'cash_received_completed_order_returns_400' test needs at least one historical completed order in the DB (will be present after the COD test runs once). Frontend sidebar/badge/POS-filter/CSV-commit-button verified visually. Pending count was 3 at end of run (1 from COD test + 2 left from prior iterations).",
+  "rca of the issue": "Iteration 6 spec said: 'Two new permissions added: move_stocks gates POST /admin/stock-movements + POST /admin/inventory/transfer'. Implementation only updated /admin/inventory/transfer (line 1036) and missed /admin/stock-movements (line 1007 — still on require_admin). Reproduction: create staff with permissions.move_stocks=false, login, POST /api/admin/stock-movements with any valid {variant_id, store_id, type:'in', quantity:1} — endpoint returns 200 + new_quantity instead of 403 'Missing permission: move_stocks'. Mitigation: change the Depends from require_admin to require_perm('move_stocks'). Single-line fix; tests will then pass."
+}

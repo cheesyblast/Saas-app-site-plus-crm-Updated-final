@@ -57,16 +57,18 @@ export default function CsvImport() {
     try {
       const { data } = await api.post("/admin/import/products", { rows, commit: false });
       setPreview(data);
-      toast.success(`Preview: ${data.summary.created + data.summary.updated} rows ready, ${data.summary.errors.length} errors`);
+      const ready = data.summary.created + data.summary.updated;
+      toast.success(`Preview: ${ready} rows ready, ${data.summary.errors.length} errors`);
     } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
     finally { setBusy(false); }
   };
   const commit = async () => {
+    if (rows.length === 0) return toast.error("Pick a CSV first");
     setBusy(true);
     try {
       const { data } = await api.post("/admin/import/products", { rows, commit: true });
       setPreview(data);
-      toast.success(`Imported ${data.summary.created} new, updated ${data.summary.updated}`);
+      toast.success(`Imported · ${data.summary.created} new, ${data.summary.updated} updated, ${data.summary.errors.length} errors`);
     } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
     finally { setBusy(false); }
   };
@@ -88,9 +90,9 @@ export default function CsvImport() {
             <input type="file" accept=".csv" hidden onChange={onFile} data-testid="csv-file-input"/>
           </label>
           <Button onClick={dryRun} disabled={busy || rows.length===0} className="bg-zinc-900 border border-zinc-700 hover:border-white rounded-none uppercase tracking-widest text-xs" data-testid="csv-dryrun-btn">Preview ({rows.length})</Button>
-          <Button onClick={commit} disabled={busy || !preview || (preview.summary.created + preview.summary.updated === 0)} className="bg-[#FF3B30] hover:bg-[#D92D23] rounded-none uppercase tracking-widest text-xs font-bold" data-testid="csv-commit-btn">Commit Import</Button>
+          <Button onClick={commit} disabled={busy || rows.length === 0} className="bg-[#FF3B30] hover:bg-[#D92D23] rounded-none uppercase tracking-widest text-xs font-bold" data-testid="csv-commit-btn">Commit Import</Button>
         </div>
-        <p className="text-[11px] text-zinc-500">Columns: name, sku, base_price, compare_price, cost_price, category, description, size, color, color_hex, stock, featured, status. Multiple rows with same name+sku create variants.</p>
+        <p className="text-[11px] text-zinc-500">Columns: name, sku, base_price, compare_price, cost_price, category, supplier, description, size, color, color_hex, stock, featured, status. Empty fields are skipped — for existing products only the filled fields are updated. Multiple rows with the same name+sku create variants.</p>
       </div>
 
       {preview && (

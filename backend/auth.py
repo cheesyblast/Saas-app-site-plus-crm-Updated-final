@@ -133,7 +133,7 @@ def require_roles(*allowed: str):
 
 
 # Granular permission gate: super_admin always passes; others require the named permission flag.
-ALL_PERMISSIONS = {"products", "orders", "pos", "inventory", "reports", "accounting", "settings", "suppliers", "marketing", "customers"}
+ALL_PERMISSIONS = {"products", "orders", "pos", "inventory", "reports", "accounting", "settings", "suppliers", "marketing", "customers", "move_stocks", "manual_inc_exp"}
 
 
 def require_perm(name: str):
