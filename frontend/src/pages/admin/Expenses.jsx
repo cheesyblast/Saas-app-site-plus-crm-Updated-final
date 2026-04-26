@@ -7,17 +7,25 @@ import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, Trash2, Search } from "lucide-react";
 import { toast } from "sonner";
+import Pagination from "@/components/admin/Pagination";
 
 const CATEGORIES = ["Rent", "Utilities", "Supplies", "Marketing", "Shipping", "Salaries", "Equipment", "Other"];
+const PAGE_SIZE = 50;
 
 export default function Expenses() {
   const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ category: "Supplies", amount: 0, description: "" });
   const [search, setSearch] = useState("");
 
-  const load = async () => setRows((await api.get("/admin/expenses", { params: search?{q:search}:{} })).data);
-  useEffect(() => { const t=setTimeout(load,200); return () => clearTimeout(t); }, [search]);
+  const load = async () => {
+    const { data } = await api.get("/admin/expenses", { params: { ...(search ? { q: search } : {}), page, page_size: PAGE_SIZE } });
+    setRows(data.items || []); setTotal(data.total || 0);
+  };
+  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [search, page]);
+  useEffect(() => { setPage(1); }, [search]);
 
   const save = async () => {
     try {
@@ -27,14 +35,14 @@ export default function Expenses() {
   };
   const del = async (id) => { if (!confirm("Delete?")) return; await api.delete(`/admin/expenses/${id}`); load(); };
 
-  const total = rows.reduce((s, e) => s + e.amount, 0);
+  const sumTotal = rows.reduce((s, e) => s + e.amount, 0);
 
   return (
     <div className="space-y-6 text-white" data-testid="admin-expenses">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h1 className="font-heading text-3xl sm:text-4xl font-black uppercase tracking-tighter">Expenses</h1>
-          <p className="text-sm text-zinc-500 mt-1">Total logged: <span className="font-mono text-white">{formatPrice(total)}</span></p>
+          <p className="text-sm text-zinc-500 mt-1">Total logged (this page): <span className="font-mono text-white">{formatPrice(sumTotal)}</span></p>
         </div>
         <div className="flex items-center gap-3">
           <div className="relative"><Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500"/><Input data-testid="expenses-search" placeholder="Search expense..." value={search} onChange={(e)=>setSearch(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none pl-9 w-56"/></div>
@@ -58,6 +66,7 @@ export default function Expenses() {
           </tbody>
         </table>
       </div>
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white rounded-none max-w-md">
           <DialogHeader><DialogTitle className="font-heading uppercase tracking-widest">Log Expense</DialogTitle></DialogHeader>

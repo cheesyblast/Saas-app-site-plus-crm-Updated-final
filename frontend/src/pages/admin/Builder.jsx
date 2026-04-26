@@ -14,6 +14,7 @@ import SectionEditor from "./builder/SectionEditor";
 const SECTION_TYPES = [
   { value: "hero", label: "Hero" },
   { value: "featured", label: "Featured Products" },
+  { value: "shop", label: "Shop / Products Showcase" },
   { value: "brand", label: "Brand Story (with stats)" },
   { value: "story", label: "Our Story" },
   { value: "reviews", label: "Reviews / Testimonials" },
@@ -32,11 +33,12 @@ const SYSTEM_PAGES = [
 
 function emptyConfig(type) {
   switch (type) {
-    case "hero": return { badge_text: "NEW BADGE", headline_line1: "Bold headline.", headline_line2: "Sharp accent.", headline_line2_accent: true, headline_size: "lg", subheading: "", cta_primary_label: "Shop Now", cta_primary_link: "/shop", cta_secondary_label: "", cta_secondary_link: "/shop", image_url: "", image_id: null, image_position: "center", overlay_opacity: 60, height: "tall" };
+    case "hero": return { badge_text: "NEW BADGE", headline_line1: "Bold headline.", headline_line2: "Sharp accent.", headline_line2_accent: true, headline_size: "lg", subheading: "", cta_primary_label: "Shop Now", cta_primary_link: "/shop", cta_secondary_label: "", cta_secondary_link: "/shop", image_url: "", image_id: null, image_position: "center", overlay_opacity: 60, height: "tall", video_url: "", video_id: null };
     case "featured": return { eyebrow: "Featured", heading: "Latest", max_items: 8, category_slug: null, show_view_all_button: true, view_all_label: "Shop All", view_all_link: "/shop" };
+    case "shop": return { eyebrow: "Shop", heading: "Our Collection", subheading: "", scope: "all", category_slug: null, max_items: 12, columns: 3 };
     case "brand": return { eyebrow: "The Brand", headline: "Built right.", paragraph: "", stats: [{ value: "100%", label: "Quality" }], image_url: "", image_id: null, image_side: "right", tagline: "" };
     case "story": return { eyebrow: "Our Story", headline: "How it started.", paragraph: "", image_url: "", image_id: null, image_side: "left" };
-    case "reviews": return { eyebrow: "Praise", heading: "Loved by customers", items: [{ name: "Customer", role: "Verified Buyer", rating: 5, text: "Amazing!" }] };
+    case "reviews": return { eyebrow: "Praise", heading: "Loved by customers", layout: "grid", direction: "ltr", speed: "medium", autoplay: true, items: [{ name: "Customer", role: "Verified Buyer", rating: 5, text: "Amazing!" }] };
     case "custom": return { block_type: "heading_text", eyebrow: "", heading: "Your block", text: "", alignment: "center", padding: "md", max_width: "narrow", image_url: "", image_id: null };
     default: return {};
   }
@@ -259,17 +261,38 @@ export default function Builder() {
 
       {/* Theme dialog */}
       <Dialog open={themeOpen} onOpenChange={setThemeOpen}>
-        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-md rounded-none">
-          <DialogHeader><DialogTitle className="font-heading uppercase tracking-widest">Theme</DialogTitle></DialogHeader>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-xl max-h-[90vh] overflow-y-auto rounded-none">
+          <DialogHeader><DialogTitle className="font-heading uppercase tracking-widest">Global Theme</DialogTitle></DialogHeader>
           <div className="space-y-4">
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500">Colors</div>
             <ColorField label="Primary / Accent" v={themeDraft.primary_color || "#FF3B30"} onChange={(v)=>setThemeDraft({...themeDraft, primary_color:v})}/>
             <ColorField label="Primary Hover" v={themeDraft.primary_color_hover || "#D92D23"} onChange={(v)=>setThemeDraft({...themeDraft, primary_color_hover:v})}/>
-            <div><Label className="text-xs uppercase tracking-widest text-zinc-400">Marquee phrases (one per line)</Label>
-              <textarea value={(themeDraft.marquee_phrases || []).join("\n")} onChange={(e) => setThemeDraft({ ...themeDraft, marquee_phrases: e.target.value.split("\n").map(s=>s.trim()).filter(Boolean) })} className="w-full mt-1 bg-zinc-900 border border-zinc-800 rounded-none p-2 text-sm" rows={4}/>
+            <ColorField label="Page Background" v={themeDraft.background_color || "#09090B"} onChange={(v)=>setThemeDraft({...themeDraft, background_color:v})}/>
+            <ColorField label="Body Text Color" v={themeDraft.text_color || "#FFFFFF"} onChange={(v)=>setThemeDraft({...themeDraft, text_color:v})}/>
+            <ColorField label="Muted Text Color" v={themeDraft.text_muted_color || "#A1A1AA"} onChange={(v)=>setThemeDraft({...themeDraft, text_muted_color:v})}/>
+
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500 pt-3">Typography</div>
+            <FontField label="Eyebrow / Small Caps Font" v={themeDraft.font_eyebrow} onChange={(v)=>setThemeDraft({...themeDraft, font_eyebrow:v})}/>
+            <FontField label="Heading Font" v={themeDraft.font_heading} onChange={(v)=>setThemeDraft({...themeDraft, font_heading:v})}/>
+            <FontField label="Body / Paragraph Font" v={themeDraft.font_body} onChange={(v)=>setThemeDraft({...themeDraft, font_body:v})}/>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs uppercase tracking-widest text-zinc-400">Heading Scale ({themeDraft.heading_scale ?? 1})</Label>
+                <input type="range" min={0.6} max={1.4} step={0.05} value={themeDraft.heading_scale ?? 1} onChange={(e)=>setThemeDraft({...themeDraft, heading_scale: parseFloat(e.target.value)})} className="w-full"/>
+              </div>
+              <div>
+                <Label className="text-xs uppercase tracking-widest text-zinc-400">Body line-height ({themeDraft.line_height ?? 1.5})</Label>
+                <input type="range" min={1.2} max={2} step={0.05} value={themeDraft.line_height ?? 1.5} onChange={(e)=>setThemeDraft({...themeDraft, line_height: parseFloat(e.target.value)})} className="w-full"/>
+              </div>
             </div>
-            <div><Label className="text-xs uppercase tracking-widest text-zinc-400">Marquee separator</Label><Input value={themeDraft.marquee_separator || "//"} onChange={(e) => setThemeDraft({ ...themeDraft, marquee_separator: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none mt-1 font-mono" /></div>
+
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500 pt-3">Marquee</div>
+            <div><Label className="text-xs uppercase tracking-widest text-zinc-400">Phrases (one per line)</Label>
+              <textarea value={(themeDraft.marquee_phrases || []).join("\n")} onChange={(e) => setThemeDraft({ ...themeDraft, marquee_phrases: e.target.value.split("\n").map(s=>s.trim()).filter(Boolean) })} className="w-full mt-1 bg-zinc-900 border border-zinc-800 rounded-none p-2 text-sm" rows={3}/>
+            </div>
+            <div><Label className="text-xs uppercase tracking-widest text-zinc-400">Separator</Label><Input value={themeDraft.marquee_separator || "//"} onChange={(e) => setThemeDraft({ ...themeDraft, marquee_separator: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none mt-1 font-mono" /></div>
           </div>
-          <DialogFooter><Button onClick={saveTheme} className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold" data-testid="save-theme-btn"><Save className="h-4 w-4 mr-2" /> Save</Button></DialogFooter>
+          <DialogFooter><Button onClick={saveTheme} className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold" data-testid="save-theme-btn"><Save className="h-4 w-4 mr-2" /> Save Theme</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
@@ -291,6 +314,35 @@ function ColorField({ label, v, onChange }) {
     <div>
       <Label className="text-xs uppercase tracking-widest text-zinc-400">{label}</Label>
       <div className="flex gap-2 mt-1"><input type="color" value={v} onChange={(e)=>onChange(e.target.value)} className="h-10 w-14 bg-zinc-900 border border-zinc-800 cursor-pointer"/><Input value={v} onChange={(e)=>onChange(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none font-mono"/></div>
+    </div>
+  );
+}
+
+function FontField({ label, v, onChange }) {
+  const FONT_CHOICES = [
+    { value: "'Archivo Black', sans-serif", label: "Archivo Black (Bold Display)" },
+    { value: "'Anton', sans-serif", label: "Anton (Condensed)" },
+    { value: "'Bebas Neue', sans-serif", label: "Bebas Neue (Sans Tall)" },
+    { value: "'Inter', sans-serif", label: "Inter (Modern)" },
+    { value: "'Space Grotesk', sans-serif", label: "Space Grotesk (Geometric)" },
+    { value: "'Playfair Display', serif", label: "Playfair Display (Elegant Serif)" },
+    { value: "'Lora', serif", label: "Lora (Modern Serif)" },
+    { value: "'DM Sans', sans-serif", label: "DM Sans (Clean)" },
+    { value: "'Poppins', sans-serif", label: "Poppins (Friendly)" },
+    { value: "'Montserrat', sans-serif", label: "Montserrat (Versatile)" },
+    { value: "'Oswald', sans-serif", label: "Oswald (Industrial)" },
+    { value: "'Raleway', sans-serif", label: "Raleway (Light)" },
+  ];
+  return (
+    <div>
+      <Label className="text-xs uppercase tracking-widest text-zinc-400">{label}</Label>
+      <Select value={v || FONT_CHOICES[0].value} onValueChange={onChange}>
+        <SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none mt-1"><SelectValue/></SelectTrigger>
+        <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+          {FONT_CHOICES.map(f => <SelectItem key={f.value} value={f.value}><span style={{fontFamily: f.value}}>{f.label}</span></SelectItem>)}
+        </SelectContent>
+      </Select>
+      {v && <div className="mt-2 text-sm text-zinc-300" style={{fontFamily: v}}>The quick brown fox jumps over the lazy dog</div>}
     </div>
   );
 }

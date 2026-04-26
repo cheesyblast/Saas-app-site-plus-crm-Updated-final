@@ -8,17 +8,25 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Plus, Trash2, Pencil, Search } from "lucide-react";
 import { toast } from "sonner";
+import Pagination from "@/components/admin/Pagination";
 
 const empty = { id: null, code: "", type: "percent", value: 10, min_order: 0, usage_limit: 0, active: true, expires_at: null };
+const PAGE_SIZE = 50;
 
 export default function Coupons() {
   const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [search, setSearch] = useState("");
 
-  const load = async () => setRows((await api.get("/admin/coupons", { params: search?{q:search}:{} })).data);
-  useEffect(() => { const t=setTimeout(load,200); return () => clearTimeout(t); }, [search]);
+  const load = async () => {
+    const { data } = await api.get("/admin/coupons", { params: { ...(search ? { q: search } : {}), page, page_size: PAGE_SIZE } });
+    setRows(data.items || []); setTotal(data.total || 0);
+  };
+  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [search, page]);
+  useEffect(() => { setPage(1); }, [search]);
 
   const save = async () => {
     try {
@@ -61,6 +69,7 @@ export default function Coupons() {
           </tbody>
         </table>
       </div>
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} />
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white rounded-none max-w-md">
           <DialogHeader><DialogTitle className="font-heading uppercase tracking-widest">{form.id ? "Edit" : "New"} Coupon</DialogTitle></DialogHeader>

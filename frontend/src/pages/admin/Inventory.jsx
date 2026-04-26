@@ -8,9 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { AlertTriangle, Search, ArrowLeftRight } from "lucide-react";
 import { toast } from "sonner";
 import { formatApiErrorDetail } from "@/lib/errors";
+import Pagination from "@/components/admin/Pagination";
+
+const PAGE_SIZE = 50;
 
 export default function Inventory() {
   const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
   const [moves, setMoves] = useState([]);
   const [stores, setStores] = useState([]);
   const [search, setSearch] = useState("");
@@ -22,15 +27,16 @@ export default function Inventory() {
   const [transferForm, setTransferForm] = useState({ variant_id: "", from_store_id: "", to_store_id: "", quantity: 1, reason: "" });
 
   const load = async () => {
-    const params = {};
+    const params = { page, page_size: PAGE_SIZE };
     if (search) params.q = search;
     if (storeFilter !== "all") params.store_id = storeFilter;
     const { data } = await api.get("/admin/inventory", { params });
-    setRows(data);
+    setRows(data.items || []); setTotal(data.total || 0);
     const { data: m } = await api.get("/admin/stock-movements", { params: { limit: 30 } });
     setMoves(m);
   };
-  useEffect(() => { const t = setTimeout(load, 150); return () => clearTimeout(t); }, [search, storeFilter]);
+  useEffect(() => { const t = setTimeout(load, 150); return () => clearTimeout(t); }, [search, storeFilter, page]);
+  useEffect(() => { setPage(1); }, [search, storeFilter]);
   useEffect(() => { api.get("/admin/stores").then(({ data }) => setStores(data)); }, []);
 
   const submit = async () => {

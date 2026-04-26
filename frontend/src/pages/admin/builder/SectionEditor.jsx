@@ -30,19 +30,43 @@ function HeroEditor({ config, onChange }) {
         <F label="Headline Line 2"><Input className={inputCls} value={c.headline_line2 || ""} onChange={(e) => set("headline_line2", e.target.value)} /></F>
       </Row>
       <Row>
-        <F label="Headline Size">
+        <F label="Headline Size (default for both lines)">
           <Select value={c.headline_size || "lg"} onValueChange={(v) => set("headline_size", v)}>
             <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
             <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+              <SelectItem value="xs">Extra Small</SelectItem>
               <SelectItem value="sm">Small</SelectItem>
               <SelectItem value="md">Medium</SelectItem>
               <SelectItem value="lg">Large</SelectItem>
               <SelectItem value="xl">Extra Large</SelectItem>
+              <SelectItem value="2xl">Display (max)</SelectItem>
             </SelectContent>
           </Select>
         </F>
         <F label="Highlight 2nd Line in Brand Color">
           <div className="h-10 flex items-center"><Switch checked={!!c.headline_line2_accent} onCheckedChange={(v) => set("headline_line2_accent", v)} /></div>
+        </F>
+      </Row>
+      <Row>
+        <F label="Line 1 Size (overrides default)">
+          <Select value={c.headline_line1_size || ""} onValueChange={(v) => set("headline_line1_size", v || null)}>
+            <SelectTrigger className={inputCls}><SelectValue placeholder="Use default"/></SelectTrigger>
+            <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+              <SelectItem value="xs">Extra Small</SelectItem><SelectItem value="sm">Small</SelectItem>
+              <SelectItem value="md">Medium</SelectItem><SelectItem value="lg">Large</SelectItem>
+              <SelectItem value="xl">Extra Large</SelectItem><SelectItem value="2xl">Display (max)</SelectItem>
+            </SelectContent>
+          </Select>
+        </F>
+        <F label="Line 2 Size (overrides default)">
+          <Select value={c.headline_line2_size || ""} onValueChange={(v) => set("headline_line2_size", v || null)}>
+            <SelectTrigger className={inputCls}><SelectValue placeholder="Use default"/></SelectTrigger>
+            <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+              <SelectItem value="xs">Extra Small</SelectItem><SelectItem value="sm">Small</SelectItem>
+              <SelectItem value="md">Medium</SelectItem><SelectItem value="lg">Large</SelectItem>
+              <SelectItem value="xl">Extra Large</SelectItem><SelectItem value="2xl">Display (max)</SelectItem>
+            </SelectContent>
+          </Select>
         </F>
       </Row>
       <F label="Subheading"><Textarea className={inputCls} value={c.subheading || ""} onChange={(e) => set("subheading", e.target.value)} rows={3} /></F>
@@ -54,6 +78,12 @@ function HeroEditor({ config, onChange }) {
       </Row>
 
       <MediaUploader value={{ image_id: c.image_id, image_url: c.image_url }} onChange={(v) => onChange({ ...c, image_id: v.image_id, image_url: v.image_url })} label="Background Image" />
+
+      <div className="border border-zinc-800 p-3">
+        <Label className="text-xs uppercase tracking-widest text-zinc-400">Background Video (optional, takes priority over image)</Label>
+        <p className="text-[10px] text-zinc-500 mt-1 mb-3">Recommended: <span className="text-zinc-300">1920×1080 MP4 (h.264), &lt; 10 MB, 10–20 sec loop</span>. Autoplays muted; viewer can unmute.</p>
+        <MediaUploader value={{ image_id: c.video_id, image_url: c.video_url }} onChange={(v) => onChange({ ...c, video_id: v.image_id, video_url: v.image_url })} label="" accept="video/*"/>
+      </div>
 
       <Row>
         <F label="Image Position">
@@ -194,6 +224,46 @@ function ReviewsEditor({ config, onChange }) {
         <F label="Eyebrow"><Input className={inputCls} value={c.eyebrow || ""} onChange={(e) => set("eyebrow", e.target.value)} /></F>
         <F label="Heading"><Input className={inputCls} value={c.heading || ""} onChange={(e) => set("heading", e.target.value)} /></F>
       </Row>
+
+      <div className="border border-zinc-800 p-3 space-y-3">
+        <Label className="text-xs uppercase tracking-widest text-zinc-400">Display</Label>
+        <Row>
+          <F label="Layout">
+            <Select value={c.layout || "grid"} onValueChange={(v) => set("layout", v)}>
+              <SelectTrigger className={inputCls}><SelectValue/></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                <SelectItem value="grid">Grid (static)</SelectItem>
+                <SelectItem value="carousel">Carousel (auto-scroll)</SelectItem>
+              </SelectContent>
+            </Select>
+          </F>
+          <F label="Direction (carousel)">
+            <Select value={c.direction || "ltr"} onValueChange={(v) => set("direction", v)}>
+              <SelectTrigger className={inputCls}><SelectValue/></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                <SelectItem value="ltr">Left → Right</SelectItem>
+                <SelectItem value="rtl">Right → Left</SelectItem>
+              </SelectContent>
+            </Select>
+          </F>
+        </Row>
+        <Row>
+          <F label="Speed">
+            <Select value={c.speed || "medium"} onValueChange={(v) => set("speed", v)}>
+              <SelectTrigger className={inputCls}><SelectValue/></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                <SelectItem value="slow">Slow</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="fast">Fast</SelectItem>
+              </SelectContent>
+            </Select>
+          </F>
+          <F label="Autoplay">
+            <div className="h-10 flex items-center"><Switch checked={c.autoplay !== false} onCheckedChange={(v) => set("autoplay", v)} /></div>
+          </F>
+        </Row>
+      </div>
+
       <div>
         <Label className="text-xs uppercase tracking-widest text-zinc-400">Reviews</Label>
         <div className="space-y-3 mt-1">
@@ -287,9 +357,104 @@ function CustomEditor({ config, onChange }) {
   );
 }
 
+const EDITORS_REMOVED_BELOW_DUPLICATE = null;
+
+function ShopEditor({ config, onChange }) {
+  const c = config;
+  const set = (k, v) => onChange({ ...c, [k]: v });
+  const [cats, setCats] = React.useState([]);
+  React.useEffect(() => {
+    import("@/lib/api").then(({ default: api }) => api.get("/categories").then(({ data }) => setCats(data)));
+  }, []);
+  return (
+    <div className="space-y-4">
+      <Row>
+        <F label="Eyebrow"><Input className={inputCls} value={c.eyebrow || ""} onChange={(e) => set("eyebrow", e.target.value)} /></F>
+        <F label="Heading"><Input className={inputCls} value={c.heading || ""} onChange={(e) => set("heading", e.target.value)} /></F>
+      </Row>
+      <F label="Subheading"><Textarea className={inputCls} value={c.subheading || ""} onChange={(e) => set("subheading", e.target.value)} rows={2} /></F>
+      <Row>
+        <F label="Show">
+          <Select value={c.scope || "all"} onValueChange={(v) => set("scope", v)}>
+            <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+            <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+              <SelectItem value="all">All products</SelectItem>
+              <SelectItem value="category">Selected category (incl. sub)</SelectItem>
+            </SelectContent>
+          </Select>
+        </F>
+        {c.scope === "category" && (
+          <F label="Category">
+            <Select value={c.category_slug || ""} onValueChange={(v) => set("category_slug", v)}>
+              <SelectTrigger className={inputCls}><SelectValue placeholder="Pick category" /></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                {cats.map((cat) => <SelectItem key={cat.id} value={cat.slug}>{cat.name}{cat.parent_id ? " (sub)" : ""}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </F>
+        )}
+      </Row>
+      <Row>
+        <F label="Max items"><Input type="number" min={2} max={48} className={inputCls} value={c.max_items || 12} onChange={(e) => set("max_items", parseInt(e.target.value) || 12)} /></F>
+        <F label="Columns">
+          <Select value={String(c.columns || 3)} onValueChange={(v) => set("columns", parseInt(v))}>
+            <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+            <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+              <SelectItem value="2">2</SelectItem><SelectItem value="3">3</SelectItem>
+              <SelectItem value="4">4</SelectItem><SelectItem value="5">5</SelectItem>
+            </SelectContent>
+          </Select>
+        </F>
+      </Row>
+    </div>
+  );
+}
+
+function StylePanel({ config, onChange }) {
+  const c = config || {};
+  const set = (k, v) => onChange({ ...c, [k]: v });
+  return (
+    <div className="border-t border-zinc-800 pt-5 mt-5 space-y-4">
+      <div className="text-xs uppercase tracking-widest text-zinc-400 font-heading">Section Style</div>
+      <Row>
+        <F label="Background color (blank = theme bg)">
+          <div className="flex gap-2">
+            <input type="color" value={c.bg_color || "#000000"} onChange={(e) => set("bg_color", e.target.value)} className="w-12 h-10 cursor-pointer bg-transparent border border-zinc-800" />
+            <Input className={inputCls} value={c.bg_color || ""} onChange={(e) => set("bg_color", e.target.value || null)} placeholder="#000000 or empty" />
+            <Button type="button" onClick={() => set("bg_color", null)} className="bg-zinc-900 hover:bg-zinc-800 rounded-none text-xs">Clear</Button>
+          </div>
+        </F>
+        <F label="Text color (blank = theme text)">
+          <div className="flex gap-2">
+            <input type="color" value={c.text_color || "#FFFFFF"} onChange={(e) => set("text_color", e.target.value)} className="w-12 h-10 cursor-pointer bg-transparent border border-zinc-800" />
+            <Input className={inputCls} value={c.text_color || ""} onChange={(e) => set("text_color", e.target.value || null)} />
+            <Button type="button" onClick={() => set("text_color", null)} className="bg-zinc-900 hover:bg-zinc-800 rounded-none text-xs">Clear</Button>
+          </div>
+        </F>
+      </Row>
+      <Row>
+        <F label="Padding (top + bottom)">
+          <Select value={c.padding || ""} onValueChange={(v) => set("padding", v || null)}>
+            <SelectTrigger className={inputCls}><SelectValue placeholder="Default" /></SelectTrigger>
+            <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+              <SelectItem value="none">None</SelectItem><SelectItem value="sm">Small</SelectItem>
+              <SelectItem value="md">Medium</SelectItem><SelectItem value="lg">Large</SelectItem>
+              <SelectItem value="xl">Extra large</SelectItem>
+            </SelectContent>
+          </Select>
+        </F>
+        <F label={`Background overlay (${c.bg_overlay_opacity ?? 0}%)`}>
+          <input type="range" min={0} max={90} value={c.bg_overlay_opacity ?? 0} onChange={(e) => set("bg_overlay_opacity", parseInt(e.target.value))} className="w-full" />
+        </F>
+      </Row>
+    </div>
+  );
+}
+
 const EDITORS = {
   hero: HeroEditor,
   featured: FeaturedEditor,
+  shop: ShopEditor,
   brand: BrandEditor,
   story: StoryEditor,
   reviews: ReviewsEditor,
@@ -299,5 +464,11 @@ const EDITORS = {
 export default function SectionEditor({ section, onChange }) {
   const Cmp = EDITORS[section.section_type];
   if (!Cmp) return <div className="text-zinc-500 text-sm">No editor for {section.section_type}</div>;
-  return <Cmp config={section.config || {}} onChange={(cfg) => onChange({ ...section, config: cfg })} />;
+  const setCfg = (cfg) => onChange({ ...section, config: cfg });
+  return (
+    <>
+      <Cmp config={section.config || {}} onChange={setCfg} />
+      <StylePanel config={section.config || {}} onChange={setCfg} />
+    </>
+  );
 }

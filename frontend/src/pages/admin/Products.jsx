@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, Pencil, Trash2, Sparkles, X, Search, Star, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { formatApiErrorDetail } from "@/lib/errors";
+import Pagination from "@/components/admin/Pagination";
 
 const empty = {
   id: null, name: "", description: "", category_id: null,
@@ -29,6 +30,9 @@ async function fileToBase64(file) {
 
 export default function Products() {
   const [products, setProducts] = useState([]);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 50;
   const [cats, setCats] = useState([]);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
@@ -38,10 +42,11 @@ export default function Products() {
   const [gen, setGen] = useState(false);
 
   const load = async () => {
-    const { data } = await api.get("/admin/products", { params: search ? { q: search } : {} });
-    setProducts(data);
+    const { data } = await api.get("/admin/products", { params: { ...(search ? { q: search } : {}), page, page_size: PAGE_SIZE } });
+    setProducts(data.items || []); setTotal(data.total || 0);
   };
-  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [search]);
+  useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [search, page]);
+  useEffect(() => { setPage(1); }, [search]);
   useEffect(() => { api.get("/categories").then(({ data }) => setCats(data)); }, []);
 
   const edit = (p) => {
@@ -118,8 +123,8 @@ export default function Products() {
     await api.post(`/admin/products/${form.id}/images`, {
       data_base64, mime_type: file.type || "image/png", is_primary: isFirst, color,
     });
-    const { data } = await api.get(`/admin/products`);
-    const fresh = data.find((p) => p.id === form.id);
+    const { data } = await api.get(`/admin/products`, { params: { page: 1, page_size: PAGE_SIZE } });
+    const fresh = (data.items || []).find((p) => p.id === form.id);
     if (fresh) setForm((f) => ({ ...f, images: fresh.images }));
     load();
     toast.success("Image uploaded");
@@ -155,7 +160,7 @@ export default function Products() {
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="font-heading text-3xl sm:text-4xl font-black uppercase tracking-tighter">Products</h1>
-          <p className="text-sm text-zinc-500 mt-1">{products.length} items</p>
+          <p className="text-sm text-zinc-500 mt-1">{total} items</p>
         </div>
         <div className="flex items-center gap-3">
           <div className="relative">
@@ -203,6 +208,7 @@ export default function Products() {
           </tbody>
         </table>
       </div>
+      <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} />
 
       <Dialog open={open} onOpenChange={(o) => !o && closeDialog()}>
         <DialogContent className="bg-zinc-950 border-zinc-800 text-white max-w-4xl max-h-[92vh] overflow-y-auto rounded-none">

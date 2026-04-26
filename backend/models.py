@@ -93,6 +93,7 @@ class Category(Base):
     name = Column(String(128), nullable=False)
     slug = Column(String(128), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
+    parent_id = Column(String(64), ForeignKey("categories.id", ondelete="SET NULL"), nullable=True, index=True)
     sort_order = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 

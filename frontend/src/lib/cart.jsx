@@ -29,6 +29,14 @@ export function CartProvider({ children }) {
         return copy;
       }
       const price = variant.price_override ?? product.base_price;
+      // Pick the image bound to this variant's color; fallback to primary; fallback to first image
+      const imgs = product.images || [];
+      const colorImg =
+        imgs.find((i) => i.color === variant.color && i.is_primary) ||
+        imgs.find((i) => i.color === variant.color) ||
+        imgs.find((i) => i.is_primary) ||
+        imgs[0] ||
+        null;
       return [
         ...prev,
         {
@@ -39,7 +47,7 @@ export function CartProvider({ children }) {
           size: variant.size,
           color: variant.color,
           color_hex: variant.color_hex,
-          image_url: product.images?.[0]?.url || null,
+          image_url: colorImg?.url || null,
           price,
           quantity: qty,
         },

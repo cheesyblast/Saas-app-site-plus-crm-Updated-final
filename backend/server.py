@@ -60,6 +60,13 @@ DEFAULT_THEME = {
     "primary_color": "#FF3B30",
     "primary_color_hover": "#D92D23",
     "background_color": "#09090B",
+    "text_color": "#FFFFFF",
+    "text_muted_color": "#A1A1AA",
+    "font_eyebrow": "'Space Grotesk', sans-serif",
+    "font_heading": "'Archivo Black', sans-serif",
+    "font_body": "'Inter', sans-serif",
+    "heading_scale": 1.0,
+    "line_height": 1.5,
     "marquee_phrases": ["NEW DROP", "EST. 2026"],
     "marquee_separator": "//",
 }
@@ -531,25 +538,51 @@ async def delete_integration(iid: str, db: AsyncSession = Depends(get_db), _: M.
 class CategoryIn(BaseModel):
     name: str
     description: Optional[str] = None
+    parent_id: Optional[str] = None
     sort_order: int = 0
 
 
 def cat_to_dict(c):
-    return {"id": c.id, "name": c.name, "slug": c.slug, "description": c.description, "sort_order": c.sort_order}
+    return {"id": c.id, "name": c.name, "slug": c.slug, "description": c.description,
+            "parent_id": c.parent_id, "sort_order": c.sort_order}
+
+
+def _build_category_tree(rows):
+    by_id = {c["id"]: {**c, "children": []} for c in rows}
+    roots = []
+    for c in by_id.values():
+        if c["parent_id"] and c["parent_id"] in by_id:
+            by_id[c["parent_id"]]["children"].append(c)
+        else:
+            roots.append(c)
+    return roots
+
+
+def _descendant_ids(rows, parent_id):
+    """Recursively collect descendant category ids (including self)."""
+    out = {parent_id}
+    children = [r for r in rows if r["parent_id"] == parent_id]
+    for c in children:
+        out.update(_descendant_ids(rows, c["id"]))
+    return out
 
 
 @api.get("/categories")
-async def list_categories(db: AsyncSession = Depends(get_db), q: Optional[str] = None):
+async def list_categories(db: AsyncSession = Depends(get_db), q: Optional[str] = None, tree: bool = False):
     query = select(M.Category).order_by(M.Category.sort_order, M.Category.name)
     if q:
         query = query.where(M.Category.name.ilike(f"%{q}%"))
     rows = (await db.execute(query)).scalars().all()
-    return [cat_to_dict(c) for c in rows]
+    flat = [cat_to_dict(c) for c in rows]
+    if tree:
+        return _build_category_tree(flat)
+    return flat
 
 
 @api.post("/admin/categories")
 async def create_category(payload: CategoryIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
-    c = M.Category(name=payload.name, slug=slugify(payload.name), description=payload.description, sort_order=payload.sort_order)
+    c = M.Category(name=payload.name, slug=slugify(payload.name), description=payload.description,
+                    parent_id=payload.parent_id or None, sort_order=payload.sort_order)
     db.add(c)
     await db.commit()
     await db.refresh(c)
@@ -561,9 +594,12 @@ async def update_category(cid: str, payload: CategoryIn, db: AsyncSession = Depe
     c = (await db.execute(select(M.Category).where(M.Category.id == cid))).scalar_one_or_none()
     if not c:
         raise HTTPException(404, "Not found")
+    if payload.parent_id == cid:
+        raise HTTPException(400, "Cannot be own parent")
     c.name = payload.name
     c.slug = slugify(payload.name)
     c.description = payload.description
+    c.parent_id = payload.parent_id or None
     c.sort_order = payload.sort_order
     await db.commit()
     return cat_to_dict(c)
@@ -675,9 +711,13 @@ async def list_products(
 ):
     q = select(M.Product).where(M.Product.status == "active")
     if category:
+        # Resolve category slug + all descendant categories
         cat = (await db.execute(select(M.Category).where(M.Category.slug == category))).scalar_one_or_none()
         if cat:
-            q = q.where(M.Product.category_id == cat.id)
+            all_cats = (await db.execute(select(M.Category))).scalars().all()
+            flat = [{"id": c.id, "parent_id": c.parent_id} for c in all_cats]
+            ids = _descendant_ids(flat, cat.id)
+            q = q.where(M.Product.category_id.in_(list(ids)))
     if featured:
         q = q.where(M.Product.featured == True)
     if search:
@@ -698,12 +738,16 @@ async def get_product(slug: str, db: AsyncSession = Depends(get_db)):
 
 
 @api.get("/admin/products")
-async def admin_list_products(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin), q: Optional[str] = None):
-    query = select(M.Product).order_by(desc(M.Product.created_at))
+async def admin_list_products(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                               q: Optional[str] = None, page: int = 1, page_size: int = 50):
+    base = select(M.Product)
     if q:
-        query = query.where(or_(M.Product.name.ilike(f"%{q}%"), M.Product.sku.ilike(f"%{q}%")))
-    rows = (await db.execute(query)).scalars().all()
-    return [await product_to_dict(p, db, include_details=True) for p in rows]
+        base = base.where(or_(M.Product.name.ilike(f"%{q}%"), M.Product.sku.ilike(f"%{q}%")))
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    page_size = min(max(1, page_size), 100); page = max(1, page)
+    rows = (await db.execute(base.order_by(desc(M.Product.created_at)).offset((page-1)*page_size).limit(page_size))).scalars().all()
+    items = [await product_to_dict(p, db, include_details=True) for p in rows]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @api.get("/images/{img_id}")
@@ -866,7 +910,9 @@ async def delete_image(img_id: str, db: AsyncSession = Depends(get_db), _: M.Use
 
 # ========== INVENTORY ==========
 @api.get("/admin/inventory")
-async def list_inventory(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin), q: Optional[str] = None, store_id: Optional[str] = None):
+async def list_inventory(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                         q: Optional[str] = None, store_id: Optional[str] = None,
+                         page: int = 1, page_size: int = 50):
     rows = (await db.execute(select(M.Inventory))).scalars().all()
     out = []
     for iv in rows:
@@ -886,8 +932,14 @@ async def list_inventory(db: AsyncSession = Depends(get_db), _: M.User = Depends
             "product_name": p.name if p else "", "product_id": p.id if p else None,
             "variant_label": f"{v.size or ''} / {v.color or ''}" if v else "",
             "sku": v.sku if v else None, "low": iv.quantity <= iv.low_stock_threshold,
+            "_created": v.created_at.isoformat() if v else "",
         })
-    return out
+    out.sort(key=lambda r: r.get("_created", ""), reverse=True)
+    total = len(out)
+    page_size = min(max(1, page_size), 100); page = max(1, page)
+    start = (page - 1) * page_size
+    items = out[start:start + page_size]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 class StockMoveIn(BaseModel):
@@ -1281,10 +1333,14 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
         shipping_fee = await _resolve_shipping_fee(db, payload.shipping_district, payload.shipping_city, subtotal)
     total = max(0.0, subtotal - discount + shipping_fee)
 
-    # Resolve payment status by method
-    paid_methods = {"cash", "card_pos"}
-    payment_status = "paid" if payload.payment_method in paid_methods else "pending"
-    order_status = "paid" if payment_status == "paid" else "pending"
+    # Resolve payment status by method.
+    # Card / instant methods are auto-paid AND auto-completed (final state).
+    # COD / pending gateways stay in pending until manually marked received.
+    instant_paid = {"cash", "card_pos", "card", "stripe"}
+    if payload.payment_method in instant_paid:
+        payment_status = "paid"; order_status = "completed"
+    else:
+        payment_status = "pending"; order_status = "pending"
 
     order = M.Order(
         order_number=new_order_number(), customer_id=customer.id,
@@ -1341,19 +1397,24 @@ async def my_orders(user: M.User = Depends(get_current_user), db: AsyncSession =
 
 
 @api.get("/admin/orders")
-async def admin_orders(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin), status: Optional[str] = None, q: Optional[str] = None, limit: int = 100):
-    query = select(M.Order).order_by(desc(M.Order.created_at))
+async def admin_orders(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                        status: Optional[str] = None, q: Optional[str] = None,
+                        page: int = 1, page_size: int = 50):
+    base = select(M.Order)
     if status:
-        query = query.where(M.Order.status == status)
+        base = base.where(M.Order.status == status)
     if q:
-        query = query.where(or_(
+        base = base.where(or_(
             M.Order.order_number.ilike(f"%{q}%"),
             M.Order.customer_name.ilike(f"%{q}%"),
             M.Order.customer_phone.ilike(f"%{q}%"),
             M.Order.customer_email.ilike(f"%{q}%"),
         ))
-    rows = (await db.execute(query.limit(limit))).scalars().all()
-    return [await _build_order_response(o, db) for o in rows]
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    page_size = min(max(1, page_size), 100); page = max(1, page)
+    rows = (await db.execute(base.order_by(desc(M.Order.created_at)).offset((page-1)*page_size).limit(page_size))).scalars().all()
+    items = [await _build_order_response(o, db) for o in rows]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 class OrderStatusIn(BaseModel):
@@ -1365,12 +1426,30 @@ async def update_order_status(oid: str, payload: OrderStatusIn, db: AsyncSession
     o = (await db.execute(select(M.Order).where(M.Order.id == oid))).scalar_one_or_none()
     if not o:
         raise HTTPException(404, "Not found")
+    if o.status == "completed":
+        raise HTTPException(400, "Completed orders are locked and cannot be changed.")
     o.status = payload.status
     if o.customer_email:
         await _log_notification(db, "email", o.customer_email, f"Order {o.order_number} {payload.status}",
                                  f"Your order {o.order_number} status: {payload.status}.", o.id)
     await db.commit()
     return {"ok": True, "status": o.status}
+
+
+@api.post("/admin/orders/{oid}/cash-received")
+async def mark_cash_received(oid: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    o = (await db.execute(select(M.Order).where(M.Order.id == oid))).scalar_one_or_none()
+    if not o:
+        raise HTTPException(404, "Not found")
+    if o.status == "completed":
+        raise HTTPException(400, "Order already completed.")
+    o.payment_status = "paid"
+    o.status = "completed"
+    if o.customer_email:
+        await _log_notification(db, "email", o.customer_email, f"Order {o.order_number} completed",
+                                 f"Cash received. Order {o.order_number} is now complete. Thank you.", o.id)
+    await db.commit()
+    return {"ok": True, "status": o.status, "payment_status": o.payment_status}
 
 
 # ========== CUSTOMERS ==========
@@ -1465,14 +1544,18 @@ class CouponIn(BaseModel):
 
 
 @api.get("/admin/coupons")
-async def list_coupons(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin), q: Optional[str] = None):
-    query = select(M.Coupon).order_by(desc(M.Coupon.created_at))
+async def list_coupons(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                       q: Optional[str] = None, page: int = 1, page_size: int = 50):
+    base = select(M.Coupon)
     if q:
-        query = query.where(M.Coupon.code.ilike(f"%{q}%"))
-    rows = (await db.execute(query)).scalars().all()
-    return [{"id": c.id, "code": c.code, "type": c.type, "value": c.value, "min_order": c.min_order,
-             "usage_limit": c.usage_limit, "used_count": c.used_count, "active": c.active,
-             "expires_at": c.expires_at.isoformat() if c.expires_at else None} for c in rows]
+        base = base.where(M.Coupon.code.ilike(f"%{q}%"))
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    page_size = min(max(1, page_size), 100); page = max(1, page)
+    rows = (await db.execute(base.order_by(desc(M.Coupon.created_at)).offset((page-1)*page_size).limit(page_size))).scalars().all()
+    items = [{"id": c.id, "code": c.code, "type": c.type, "value": c.value, "min_order": c.min_order,
+              "usage_limit": c.usage_limit, "used_count": c.used_count, "active": c.active,
+              "expires_at": c.expires_at.isoformat() if c.expires_at else None} for c in rows]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @api.post("/admin/coupons")
@@ -1520,13 +1603,17 @@ class ExpenseIn(BaseModel):
 
 
 @api.get("/admin/expenses")
-async def list_expenses(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin), q: Optional[str] = None):
-    query = select(M.Expense).order_by(desc(M.Expense.expense_date))
+async def list_expenses(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                         q: Optional[str] = None, page: int = 1, page_size: int = 50):
+    base = select(M.Expense)
     if q:
-        query = query.where(or_(M.Expense.category.ilike(f"%{q}%"), M.Expense.description.ilike(f"%{q}%")))
-    rows = (await db.execute(query)).scalars().all()
-    return [{"id": e.id, "category": e.category, "amount": e.amount, "description": e.description,
-             "expense_date": e.expense_date.isoformat()} for e in rows]
+        base = base.where(or_(M.Expense.category.ilike(f"%{q}%"), M.Expense.description.ilike(f"%{q}%")))
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    page_size = min(max(1, page_size), 100); page = max(1, page)
+    rows = (await db.execute(base.order_by(desc(M.Expense.expense_date)).offset((page-1)*page_size).limit(page_size))).scalars().all()
+    items = [{"id": e.id, "category": e.category, "amount": e.amount, "description": e.description,
+              "expense_date": e.expense_date.isoformat()} for e in rows]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
 @api.post("/admin/expenses")
