@@ -1,75 +1,58 @@
 # Product Requirements Document
 
 ## Original Problem Statement
-Full-stack SaaS online clothing store + ERP/CRM backend. Storefront (home, shop, cart, checkout), admin ERP/CRM (products, inventory, POS, orders, staff), dynamic Page Builder, Supabase Postgres, JWT email/password auth (admin) + Emergent Google OAuth (customer), Mock + PayHere checkout. Sri Lankan store with district/city addresses & shipping rules. Multi-tenancy is a future phase.
+Full-stack SaaS online clothing store + ERP/CRM. Storefront, admin ERP/CRM, dynamic Page Builder, Supabase Postgres, JWT email/password auth (admin) + Emergent Google OAuth (customer), Mock + PayHere checkout. Sri Lankan store with district/city addresses & shipping rules. Multi-tenancy is a future phase.
 
-## Current Architecture
-- **Backend**: FastAPI async + SQLAlchemy 2 + Supabase Postgres (Transaction Pooler). RLS enabled on every table. JWT (HS256) sessions in httponly samesite=none cookies for password auth, DB-backed sessions for Google OAuth flow.
-- **Frontend**: React 19 + Tailwind + shadcn/ui + axios. Custom Page Builder routes.
-- **Storage**: Images stored as base64 BYTEA in Postgres, streamed via `/api/images/{id}` and `/api/media/{id}`.
-- **Theme**: CSS variables `--theme-primary` etc., editable from Page Builder.
+## Implemented Features
 
-## Implemented Features (this session, 2026-02-25)
-### Phase A — Auth Pivot + Setup + Settings
-- JWT email+password auth with bcrypt + brute-force lockout (5 attempts/15 min).
-- Idempotent first-run Setup Wizard at `/setup` (3 steps: company → contacts → admin).
-- Admin can change own password from Settings → My Account.
-- Settings page (`/admin/settings`) with tabs: Company, My Account, Email providers, SMS providers, Shipping, Payments.
-- Company logo upload (light + dark variants, ≤1 MB) auto-applied to storefront navbar/footer + admin sidebar.
-- `/api/auth/login`, `/auth/register`, `/auth/me`, `/auth/logout`, `/auth/change-password`. Google OAuth retained at `/auth/session` (customer-only).
+### Iteration 1-2 (2026-02-25): Foundation
+- JWT auth + first-run Setup Wizard, full Settings page, light/dark logos auto-applied.
+- Page Builder editing Home, Header, Footer, Product Page Layout, Shipping Policy, Returns Policy + custom pages.
+- Inline product image manager with per-color image binding + per-product policy notes.
+- Search bars + auto-numbered orders + POS quick-search/auto-register.
+- Inventory transfers between stores.
+- Email/SMS provider settings (SMTP, SendGrid, Brevo, Twilio, Notify.lk) — sending MOCKED.
+- Customer Email+Password & Google login + checkout autofill.
+- Sri Lanka 25-district/300-city checkout + admin shipping rules + per-scope (online/POS) payment methods.
 
-### Phase B — Page Builder Extensions
-- Editable: Home (`home`), Site Header (`_header`), Site Footer (`_footer`), Product Page Layout (`_product_page`), Shipping Policy (`shipping-policy`), Returns & Refunds (`returns-policy`).
-- Custom Pages: admins can create new builder-driven pages (`/page/{slug}`).
-- Header builder: editable menu items, style (minimal/bold/classic), toggles for search/cart/login/sticky.
-- Footer builder: tagline, support contacts, columns of links, marquee toggle, copyright.
-- Product page tail-sections render below product detail (e.g. "Same Category" smart slot).
+### Iteration 3 (2026-02-26): SaaS expansion
+**Theme** — Global background color, body text color, muted text color, eyebrow/heading/body fonts (12 Google Font choices), heading-scale slider, body line-height slider. Applied via CSS variables.
 
-### Phase C — Products Overhaul
-- Inline image management inside product modal (was separate before).
-- Per-color image binding: each image can be tagged to a specific color; storefront swaps main image when shopper picks color.
-- Admin "Set Main" toggle per image.
-- Per-product Shipping & Returns notes — short blurb + auto "Read more →" link to policy pages.
+**Per-Section Style** — Every Page Builder section gets its own background color, text color, padding (none/sm/md/lg/xl), and overlay opacity slider. Hero supports separate per-line size for headline 1 + headline 2 (xs → 2xl).
 
-### Phase D — Search & UX
-- Search bars on Products, Categories, Inventory, Orders, Customers, Coupons, Expenses.
-- Customers searchable by name/phone/email/order number.
-- Auto-numbered orders: `ORD-YYYYMMDD-XXXXX`.
-- POS: customer quick-search (debounced) + auto-register when entering name+phone for a new walk-in.
-- POS payment methods are now driven by `/admin/payment-methods` (scope=pos).
+**Hero Video** — Hero accepts an MP4 background (recommended 1920×1080, ≤15MB, 10–20s). Autoplays muted with viewer-controllable mute & play/pause buttons.
 
-### Phase E — Inventory Transfers
-- New `/api/admin/inventory/transfer` endpoint moves stock between stores atomically; logs `transfer_in` / `transfer_out` movements with shared reference.
-- Inventory page has "Transfer" button per row; store filter dropdown.
+**Unlimited-depth Subcategories** — `Category.parent_id` (recursive). Admin Categories table indents children. Storefront `/api/products?category={parent_slug}` includes ALL descendants.
 
-### Phase F — SMS / Email Settings
-- Configurable providers in Settings: SMTP, SendGrid, Brevo (email); Twilio, Notify.lk (SMS).
-- Each provider stored in `integration_settings` with provider-specific JSON config.
-- One default per channel used for sending. (Sending itself remains MOCKED in `notification_logs` until provider client code is wired.)
+**SHOP Section in Page Builder** — New section type. Shows all products OR products in a selected category (incl. sub-cats). Configurable max items + 2-5 column grid.
 
-### Phase G — Storefront Customer Auth
-- Customers can sign up / sign in via Email+Password OR Google.
-- `/login` (customer) and `/register` pages. `/admin/login` is dedicated admin entry.
-- Checkout shows "Sign in for autofill" CTA when logged out; toggle "Auto-fill from my profile" when logged in.
+**Reviews Carousel** — Reviews section toggles between Grid and auto-scroll Carousel with direction (LTR/RTL), speed (slow/medium/fast), autoplay on/off. Pause-on-hover.
 
-### Phase H — Sri Lanka Checkout + Shipping & Payment Rules
-- Sri Lanka districts (25) + town/city dropdown (300+) wired in checkout.
-- Admin Settings → Shipping Rules: configurable fee per district / district+city, optional free-shipping threshold, default fallback rule.
-- Admin Settings → Payment Methods: separate **Online** and **POS** lists. Each method (Cash on Delivery, PayHere, Cash, Card POS, Bank Transfer, Custom) is independently active/sortable. Storefront checkout fetches `scope=online`; POS fetches `scope=pos`.
-- PayHere config (merchant_id / secret / sandbox toggle) saved per method (gateway not yet executed live).
+**Cart Bug Fix** — Adding two different colored variants of the same product now shows the correct color-bound image per cart row.
 
-## Known Gaps / Mocked
-- Email/SMS sending is logged to `notification_logs` only (no real provider client wired).
-- PayHere live charge flow not yet implemented; saved config only.
-- Inventory bulk CSV upload not yet implemented.
-- AI image generation (Gemini Nano Banana) was disabled in the new product modal; can be re-added later.
+**Payment Lifecycle Rebuild**
+- Card / instant gateways → checkout sets `payment_status=paid` AND `status=completed` immediately.
+- COD → checkout sets `payment_status=pending` `status=pending`.
+- Admin Orders page shows a **"Cash Received"** button on COD pending rows. Clicking it flips to `paid` + `completed` and revenue updates.
+- Once `completed`, the status is **locked**: the status select is replaced by a green "Completed" badge with a lock icon. PUT /status returns 400.
+- Orders filter dropdown gained a "Completed" option.
 
-## Next Action Items / Backlog
-- P1: Real PayHere live integration (sandbox/live).
-- P1: Bulk product/inventory CSV import.
-- P1: Wire SendGrid/Brevo/Twilio/Notify.lk live sending using saved configs.
-- P2: ~400×500 thumbnails for product images.
-- P2: Multi-tenancy (tenants table, tenant_id everywhere, super-admin panel).
+**Pagination (50 / page, recent first)** — Orders, Products, Inventory, Coupons, Expenses now return `{items, total, page, page_size}` and render a Prev/Next + "Page X / Y" footer. Categories paginates client-side over the recursive tree.
 
-## Auth & Test Accounts
-See `/app/memory/test_credentials.md`.
+## Mocked / Pending
+- Email/SMS sending (provider configs save fine; payloads logged to `notification_logs`)
+- PayHere live charge
+
+## Test Results
+- Iteration 3: 23/23 backend + 12/12 frontend ✅
+- Iteration 4: 17/17 backend + frontend smoke ✅ — no bugs found.
+- Test files: `/app/backend/tests/test_iter4_saas.py`, `/app/test_reports/iteration_4.json`.
+
+## Backlog
+- P1: PayHere live charge integration
+- P1: Wire SendGrid/Brevo/Twilio/Notify.lk live dispatch
+- P1: Bulk CSV import (products + inventory)
+- P2: ~400×500 thumbnail variants
+- P2: Multi-tenancy (tenants table, tenant_id everywhere, super-admin panel)
+- P2: Split server.py (~2080 lines) into routers
+- P2: Stricter Pydantic models for ThemeConfig (currently dict)
