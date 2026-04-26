@@ -1004,7 +1004,7 @@ class StockMoveIn(BaseModel):
 
 
 @api.post("/admin/stock-movements")
-async def create_stock_movement(payload: StockMoveIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_admin)):
+async def create_stock_movement(payload: StockMoveIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_perm("move_stocks"))):
     store = await _ensure_default_store(db)
     sid = payload.store_id or store.id
     inv = (await db.execute(select(M.Inventory).where(and_(M.Inventory.variant_id == payload.variant_id, M.Inventory.store_id == sid)))).scalar_one_or_none()
