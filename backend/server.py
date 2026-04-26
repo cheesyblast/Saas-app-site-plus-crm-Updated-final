@@ -25,10 +25,10 @@ import models as M
 from auth import (
     hash_password, verify_password,
     make_session_jwt, set_session_cookie, clear_session_cookie, get_session_token,
-    get_current_user, get_current_user_optional, require_admin, require_roles,
+    get_current_user, get_current_user_optional, require_admin, require_roles, require_perm,
     check_lockout, record_failed_login, clear_login_attempts,
     fetch_emergent_profile, create_db_session, gen_reset_token,
-    ADMIN_ROLES,
+    ADMIN_ROLES, ALL_PERMISSIONS,
 )
 from sl_locations import SL_DISTRICT_CITIES, all_districts, cities_for
 
@@ -54,6 +54,33 @@ async def _ensure_rls(conn):
         await conn.execute(text(
             f'CREATE POLICY deny_public ON public."{t}" FOR ALL TO anon, authenticated USING (false) WITH CHECK (false);'
         ))
+
+
+# Idempotent column additions for evolving schema (run on startup).
+COLUMN_MIGRATIONS = [
+    ('users', 'permissions', 'JSONB'),
+    ('products', 'supplier_id', 'VARCHAR(64)'),
+    ('products', 'cost_price', 'DOUBLE PRECISION'),
+    ('coupons', 'scope', "VARCHAR(16) DEFAULT 'all'"),
+    ('coupons', 'scope_product_ids', 'JSONB'),
+    ('coupons', 'scope_category_ids', 'JSONB'),
+    ('expenses', 'store_id', 'VARCHAR(64)'),
+    ('expenses', 'method', "VARCHAR(16) DEFAULT 'cash'"),
+    ('expenses', 'cash_account_id', 'VARCHAR(64)'),
+    ('orders', 'cash_tendered', 'DOUBLE PRECISION'),
+    ('orders', 'cash_change', 'DOUBLE PRECISION'),
+    ('orders', 'card_last4', 'VARCHAR(8)'),
+    ('orders', 'cash_account_id', 'VARCHAR(64)'),
+]
+
+
+async def _migrate_columns(conn):
+    from sqlalchemy import text
+    for table, col, ddl in COLUMN_MIGRATIONS:
+        try:
+            await conn.execute(text(f'ALTER TABLE public."{table}" ADD COLUMN IF NOT EXISTS "{col}" {ddl}'))
+        except Exception as e:
+            logger.warning(f"Migration skipped {table}.{col}: {e}")
 
 
 DEFAULT_THEME = {
@@ -178,6 +205,7 @@ DEFAULT_SYSTEM_PAGES = [
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        await _migrate_columns(conn)
         await _ensure_rls(conn)
     from database import AsyncSessionLocal
     async with AsyncSessionLocal() as db:
@@ -244,7 +272,7 @@ def _client_ip(request: Request) -> str:
 
 def _public_user(u: M.User) -> dict:
     return {"user_id": u.user_id, "email": u.email, "name": u.name, "picture": u.picture,
-            "role": u.role, "phone": u.phone}
+            "role": u.role, "phone": u.phone, "permissions": u.permissions or {}}
 
 
 # ========== SETUP WIZARD ==========
@@ -630,8 +658,10 @@ class ProductIn(BaseModel):
     name: str
     description: Optional[str] = None
     category_id: Optional[str] = None
+    supplier_id: Optional[str] = None
     base_price: float
     compare_price: Optional[float] = None
+    cost_price: Optional[float] = None
     sku: Optional[str] = None
     status: str = "active"
     featured: bool = False
@@ -643,7 +673,8 @@ class ProductIn(BaseModel):
 async def product_to_dict(p: M.Product, db: AsyncSession, include_details: bool = True):
     data = {
         "id": p.id, "name": p.name, "slug": p.slug, "description": p.description,
-        "category_id": p.category_id, "base_price": p.base_price, "compare_price": p.compare_price,
+        "category_id": p.category_id, "supplier_id": p.supplier_id,
+        "base_price": p.base_price, "compare_price": p.compare_price, "cost_price": p.cost_price,
         "sku": p.sku, "status": p.status, "featured": p.featured,
         "shipping_note": p.shipping_note, "returns_note": p.returns_note,
         "created_at": p.created_at.isoformat(),
@@ -783,8 +814,9 @@ async def create_product(payload: ProductIn, db: AsyncSession = Depends(get_db),
     slug = slugify(payload.name) + "-" + uuid.uuid4().hex[:4]
     p = M.Product(
         name=payload.name, slug=slug, description=payload.description,
-        category_id=payload.category_id, base_price=payload.base_price,
-        compare_price=payload.compare_price, sku=payload.sku,
+        category_id=payload.category_id, supplier_id=payload.supplier_id,
+        base_price=payload.base_price, compare_price=payload.compare_price,
+        cost_price=payload.cost_price, sku=payload.sku,
         status=payload.status, featured=payload.featured,
         shipping_note=payload.shipping_note, returns_note=payload.returns_note,
     )
@@ -808,8 +840,10 @@ async def update_product(pid: str, payload: ProductIn, db: AsyncSession = Depend
         raise HTTPException(404, "Not found")
     store = await _ensure_default_store(db)
     p.name = payload.name; p.description = payload.description
-    p.category_id = payload.category_id; p.base_price = payload.base_price
-    p.compare_price = payload.compare_price; p.sku = payload.sku
+    p.category_id = payload.category_id; p.supplier_id = payload.supplier_id
+    p.base_price = payload.base_price
+    p.compare_price = payload.compare_price; p.cost_price = payload.cost_price
+    p.sku = payload.sku
     p.status = payload.status; p.featured = payload.featured
     p.shipping_note = payload.shipping_note; p.returns_note = payload.returns_note
     p.updated_at = datetime.now(timezone.utc)
@@ -1217,6 +1251,9 @@ class CheckoutIn(BaseModel):
     notes: Optional[str] = None
     source: str = "online"
     store_id: Optional[str] = None
+    cash_tendered: Optional[float] = None  # POS: amount paid in cash
+    card_last4: Optional[str] = None        # POS: card terminal last 4
+    cash_account_id: Optional[str] = None   # which drawer/account received money
 
 
 async def _log_notification(db, channel, to, subject, body, order_id=None, status="mocked", provider=None):
@@ -1231,9 +1268,11 @@ async def _build_order_response(o: M.Order, db: AsyncSession):
         "payment_method": o.payment_method, "payment_status": o.payment_status,
         "subtotal": o.subtotal, "discount": o.discount, "coupon_code": o.coupon_code,
         "shipping": o.shipping, "tax": o.tax, "total": o.total,
+        "cash_tendered": o.cash_tendered, "cash_change": o.cash_change, "card_last4": o.card_last4,
         "customer_name": o.customer_name, "customer_email": o.customer_email,
         "customer_phone": o.customer_phone, "shipping_address": o.shipping_address,
         "shipping_district": o.shipping_district, "shipping_city": o.shipping_city,
+        "store_id": o.store_id,
         "source": o.source, "notes": o.notes, "created_at": o.created_at.isoformat(),
         "items": [{"id": i.id, "product_name": i.product_name, "variant_label": i.variant_label,
                    "unit_price": i.unit_price, "quantity": i.quantity, "subtotal": i.subtotal} for i in items],
@@ -1325,7 +1364,18 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
             raise HTTPException(400, "Coupon usage limit reached")
         if subtotal < coupon.min_order:
             raise HTTPException(400, f"Minimum order {coupon.min_order} required")
-        discount = round(subtotal * (coupon.value / 100.0), 2) if coupon.type == "percent" else min(subtotal, coupon.value)
+        # Coupon scope: only discount the eligible portion (products or categories)
+        eligible_subtotal = subtotal
+        scope = (coupon.scope or "all")
+        if scope == "products":
+            allowed = set(coupon.scope_product_ids or [])
+            eligible_subtotal = sum(line_sub for v, p, inv, price, qty, line_sub, vlabel in order_items_data if p.id in allowed)
+        elif scope == "categories":
+            allowed = set(coupon.scope_category_ids or [])
+            eligible_subtotal = sum(line_sub for v, p, inv, price, qty, line_sub, vlabel in order_items_data if p.category_id in allowed)
+        if eligible_subtotal <= 0:
+            raise HTTPException(400, "Coupon does not apply to any item in cart")
+        discount = round(eligible_subtotal * (coupon.value / 100.0), 2) if coupon.type == "percent" else min(eligible_subtotal, coupon.value)
 
     if payload.source == "pos":
         shipping_fee = 0.0
@@ -1342,6 +1392,11 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
     else:
         payment_status = "pending"; order_status = "pending"
 
+    cash_tendered = payload.cash_tendered
+    cash_change = None
+    if payload.payment_method == "cash" and cash_tendered is not None:
+        cash_change = max(0.0, cash_tendered - max(0.0, subtotal - discount + (0.0 if payload.source == "pos" else 0.0)))
+
     order = M.Order(
         order_number=new_order_number(), customer_id=customer.id,
         customer_name=payload.customer_name, customer_email=payload.customer_email,
@@ -1350,6 +1405,8 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
         status=order_status, payment_method=payload.payment_method, payment_status=payment_status,
         subtotal=subtotal, discount=discount, coupon_code=coupon.code if coupon else None,
         shipping=shipping_fee, total=total, store_id=store_id,
+        cash_tendered=cash_tendered, cash_change=cash_change,
+        card_last4=payload.card_last4, cash_account_id=payload.cash_account_id,
         created_by=user.user_id if user else None, source=payload.source, notes=payload.notes,
     )
     db.add(order); await db.flush()
@@ -1365,14 +1422,25 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
         coupon.used_count += 1
     customer.total_orders += 1
     customer.total_spent += total
+    # Cash ledger: log instant-paid orders to cash account if specified
+    if payment_status == "paid" and payload.cash_account_id:
+        ca = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == payload.cash_account_id))).scalar_one_or_none()
+        if ca:
+            ca.balance += total
+            db.add(M.CashLedger(cash_account_id=ca.id, direction="in", amount=total,
+                                 source_kind="order", source_id=order.id,
+                                 notes=f"Order {order.order_number}",
+                                 created_by=user.user_id if user else None))
+    # Build receipt URL for SMS
+    receipt_path = f"/receipt/{order.order_number}"
     if payload.customer_email:
         await _log_notification(db, "email", payload.customer_email,
                                  f"Order {order.order_number} confirmed",
-                                 f"Thank you {payload.customer_name}! Order {order.order_number} total {total:.2f}.",
+                                 f"Thank you {payload.customer_name}! Order {order.order_number} total {total:.2f}. Receipt: {receipt_path}",
                                  order.id)
     if payload.customer_phone:
         await _log_notification(db, "sms", payload.customer_phone, "Order Confirmed",
-                                 f"Order {order.order_number} confirmed. Total {total:.2f}.",
+                                 f"Order {order.order_number} confirmed. Total {total:.2f}. Receipt: {receipt_path}",
                                  order.id)
     await db.commit()
     await db.refresh(order)
@@ -1541,6 +1609,18 @@ class CouponIn(BaseModel):
     usage_limit: int = 0
     active: bool = True
     expires_at: Optional[datetime] = None
+    scope: str = "all"  # all, products, categories
+    scope_product_ids: Optional[List[str]] = None
+    scope_category_ids: Optional[List[str]] = None
+
+
+def _coupon_dict(c):
+    return {"id": c.id, "code": c.code, "type": c.type, "value": c.value, "min_order": c.min_order,
+            "usage_limit": c.usage_limit, "used_count": c.used_count, "active": c.active,
+            "expires_at": c.expires_at.isoformat() if c.expires_at else None,
+            "scope": c.scope or "all",
+            "scope_product_ids": c.scope_product_ids or [],
+            "scope_category_ids": c.scope_category_ids or []}
 
 
 @api.get("/admin/coupons")
@@ -1552,9 +1632,7 @@ async def list_coupons(db: AsyncSession = Depends(get_db), _: M.User = Depends(r
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     page_size = min(max(1, page_size), 100); page = max(1, page)
     rows = (await db.execute(base.order_by(desc(M.Coupon.created_at)).offset((page-1)*page_size).limit(page_size))).scalars().all()
-    items = [{"id": c.id, "code": c.code, "type": c.type, "value": c.value, "min_order": c.min_order,
-              "usage_limit": c.usage_limit, "used_count": c.used_count, "active": c.active,
-              "expires_at": c.expires_at.isoformat() if c.expires_at else None} for c in rows]
+    items = [_coupon_dict(c) for c in rows]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -1600,18 +1678,25 @@ class ExpenseIn(BaseModel):
     amount: float
     description: Optional[str] = None
     expense_date: Optional[datetime] = None
+    store_id: Optional[str] = None
+    method: str = "cash"
+    cash_account_id: Optional[str] = None
 
 
 @api.get("/admin/expenses")
 async def list_expenses(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
-                         q: Optional[str] = None, page: int = 1, page_size: int = 50):
+                         q: Optional[str] = None, page: int = 1, page_size: int = 50,
+                         store_id: Optional[str] = None):
     base = select(M.Expense)
     if q:
         base = base.where(or_(M.Expense.category.ilike(f"%{q}%"), M.Expense.description.ilike(f"%{q}%")))
+    if store_id:
+        base = base.where(M.Expense.store_id == store_id)
     total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
     page_size = min(max(1, page_size), 100); page = max(1, page)
     rows = (await db.execute(base.order_by(desc(M.Expense.expense_date)).offset((page-1)*page_size).limit(page_size))).scalars().all()
     items = [{"id": e.id, "category": e.category, "amount": e.amount, "description": e.description,
+              "store_id": e.store_id, "method": e.method, "cash_account_id": e.cash_account_id,
               "expense_date": e.expense_date.isoformat()} for e in rows]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
@@ -1622,7 +1707,17 @@ async def create_expense(payload: ExpenseIn, db: AsyncSession = Depends(get_db),
     e.created_by = user.user_id
     if not e.expense_date:
         e.expense_date = datetime.now(timezone.utc)
-    db.add(e); await db.commit(); await db.refresh(e)
+    db.add(e); await db.flush()
+    # Cash ledger if assigned to an account
+    if payload.cash_account_id:
+        ca = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == payload.cash_account_id))).scalar_one_or_none()
+        if ca:
+            ca.balance -= payload.amount
+            db.add(M.CashLedger(cash_account_id=ca.id, direction="out", amount=payload.amount,
+                                source_kind="expense", source_id=e.id,
+                                notes=f"{e.category}: {e.description or ''}",
+                                created_by=user.user_id))
+    await db.commit(); await db.refresh(e)
     return {"id": e.id}
 
 
@@ -1688,6 +1783,7 @@ class StaffIn(BaseModel):
     base_salary: Optional[float] = None
     active: bool = True
     password: Optional[str] = None  # Optional initial password
+    permissions: Optional[dict] = None
 
 
 @api.get("/admin/staff")
@@ -1698,17 +1794,19 @@ async def list_staff(db: AsyncSession = Depends(get_db), _: M.User = Depends(req
     rows = (await db.execute(query)).scalars().all()
     return [{"user_id": u.user_id, "email": u.email, "name": u.name, "phone": u.phone,
              "role": u.role, "base_salary": u.base_salary, "active": u.active,
-             "auth_provider": u.auth_provider,
+             "auth_provider": u.auth_provider, "permissions": u.permissions or {},
              "created_at": u.created_at.isoformat()} for u in rows]
 
 
 @api.post("/admin/staff")
 async def create_staff(payload: StaffIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_roles("super_admin"))):
+    # Default to "all permissions OFF" — admin must explicitly grant.
+    perms = payload.permissions or {p: False for p in ALL_PERMISSIONS}
     existing = (await db.execute(select(M.User).where(M.User.email == payload.email.lower()))).scalar_one_or_none()
     if existing:
         existing.role = payload.role; existing.name = payload.name
         existing.phone = payload.phone; existing.base_salary = payload.base_salary
-        existing.active = payload.active
+        existing.active = payload.active; existing.permissions = perms
         if payload.password:
             existing.password_hash = hash_password(payload.password)
             existing.auth_provider = "password"
@@ -1716,7 +1814,7 @@ async def create_staff(payload: StaffIn, db: AsyncSession = Depends(get_db), _: 
         return {"user_id": existing.user_id}
     u = M.User(user_id=f"user_{uuid.uuid4().hex[:12]}", email=payload.email.lower(), name=payload.name,
                phone=payload.phone, role=payload.role, base_salary=payload.base_salary,
-               active=payload.active, auth_provider="password",
+               active=payload.active, auth_provider="password", permissions=perms,
                password_hash=hash_password(payload.password) if payload.password else None)
     db.add(u); await db.commit(); await db.refresh(u)
     return {"user_id": u.user_id}
@@ -1729,6 +1827,8 @@ async def update_staff(uid: str, payload: StaffIn, db: AsyncSession = Depends(ge
         raise HTTPException(404, "Not found")
     u.email = payload.email.lower(); u.name = payload.name; u.phone = payload.phone
     u.role = payload.role; u.base_salary = payload.base_salary; u.active = payload.active
+    if payload.permissions is not None:
+        u.permissions = payload.permissions
     if payload.password:
         u.password_hash = hash_password(payload.password)
         u.auth_provider = "password"
@@ -2070,6 +2170,501 @@ async def delete_media(mid: str, db: AsyncSession = Depends(get_db), _: M.User =
 @api.get("/")
 async def root():
     return {"app": "ERP Storefront", "status": "ok"}
+
+
+# ========== SUPPLIERS ==========
+class SupplierIn(BaseModel):
+    name: str
+    contact_person: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    address: Optional[str] = None
+    notes: Optional[str] = None
+    active: bool = True
+
+
+def _supplier_dict(s):
+    return {"id": s.id, "name": s.name, "contact_person": s.contact_person, "phone": s.phone,
+            "email": s.email, "address": s.address, "notes": s.notes,
+            "balance_owed": s.balance_owed, "total_purchases": s.total_purchases, "total_paid": s.total_paid,
+            "active": s.active, "created_at": s.created_at.isoformat()}
+
+
+@api.get("/admin/suppliers")
+async def list_suppliers(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                          q: Optional[str] = None, page: int = 1, page_size: int = 50):
+    base = select(M.Supplier)
+    if q:
+        base = base.where(or_(M.Supplier.name.ilike(f"%{q}%"), M.Supplier.phone.ilike(f"%{q}%"),
+                              M.Supplier.email.ilike(f"%{q}%")))
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    page_size = min(max(1, page_size), 100); page = max(1, page)
+    rows = (await db.execute(base.order_by(desc(M.Supplier.created_at)).offset((page-1)*page_size).limit(page_size))).scalars().all()
+    return {"items": [_supplier_dict(s) for s in rows], "total": total, "page": page, "page_size": page_size}
+
+
+@api.post("/admin/suppliers")
+async def create_supplier(payload: SupplierIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    s = M.Supplier(**payload.model_dump())
+    db.add(s); await db.commit(); await db.refresh(s)
+    return _supplier_dict(s)
+
+
+@api.put("/admin/suppliers/{sid}")
+async def update_supplier(sid: str, payload: SupplierIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    s = (await db.execute(select(M.Supplier).where(M.Supplier.id == sid))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "Not found")
+    for k, v in payload.model_dump().items():
+        setattr(s, k, v)
+    await db.commit()
+    return _supplier_dict(s)
+
+
+@api.delete("/admin/suppliers/{sid}")
+async def delete_supplier(sid: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    s = (await db.execute(select(M.Supplier).where(M.Supplier.id == sid))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "Not found")
+    await db.delete(s); await db.commit()
+    return {"ok": True}
+
+
+class SupplierInvoiceIn(BaseModel):
+    supplier_id: str
+    reference: Optional[str] = None
+    amount: float
+    notes: Optional[str] = None
+    invoice_date: Optional[datetime] = None
+
+
+@api.get("/admin/suppliers/{sid}/invoices")
+async def list_supplier_invoices(sid: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    rows = (await db.execute(select(M.SupplierInvoice).where(M.SupplierInvoice.supplier_id == sid)
+                              .order_by(desc(M.SupplierInvoice.invoice_date)))).scalars().all()
+    return [{"id": r.id, "reference": r.reference, "amount": r.amount, "paid": r.paid, "balance": r.amount - r.paid,
+             "notes": r.notes, "invoice_date": r.invoice_date.isoformat()} for r in rows]
+
+
+@api.post("/admin/supplier-invoices")
+async def create_supplier_invoice(payload: SupplierInvoiceIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_admin)):
+    s = (await db.execute(select(M.Supplier).where(M.Supplier.id == payload.supplier_id))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "Supplier not found")
+    inv = M.SupplierInvoice(supplier_id=payload.supplier_id, reference=payload.reference,
+                             amount=payload.amount, notes=payload.notes,
+                             invoice_date=payload.invoice_date or datetime.now(timezone.utc),
+                             created_by=user.user_id)
+    db.add(inv)
+    s.total_purchases += payload.amount
+    s.balance_owed += payload.amount
+    await db.commit(); await db.refresh(inv)
+    return {"id": inv.id}
+
+
+class SupplierPayIn(BaseModel):
+    supplier_id: str
+    invoice_id: Optional[str] = None
+    amount: float
+    method: str = "cash"
+    cash_account_id: Optional[str] = None
+    notes: Optional[str] = None
+
+
+@api.post("/admin/supplier-payments")
+async def pay_supplier(payload: SupplierPayIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_admin)):
+    s = (await db.execute(select(M.Supplier).where(M.Supplier.id == payload.supplier_id))).scalar_one_or_none()
+    if not s:
+        raise HTTPException(404, "Supplier not found")
+    pay = M.SupplierPayment(supplier_id=payload.supplier_id, invoice_id=payload.invoice_id,
+                             amount=payload.amount, method=payload.method,
+                             cash_account_id=payload.cash_account_id, notes=payload.notes,
+                             created_by=user.user_id)
+    db.add(pay)
+    s.total_paid += payload.amount
+    s.balance_owed = max(0.0, s.balance_owed - payload.amount)
+    if payload.invoice_id:
+        inv = (await db.execute(select(M.SupplierInvoice).where(M.SupplierInvoice.id == payload.invoice_id))).scalar_one_or_none()
+        if inv:
+            inv.paid = min(inv.amount, inv.paid + payload.amount)
+    if payload.cash_account_id:
+        ca = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == payload.cash_account_id))).scalar_one_or_none()
+        if ca:
+            ca.balance -= payload.amount
+            db.add(M.CashLedger(cash_account_id=ca.id, direction="out", amount=payload.amount,
+                                source_kind="supplier", source_id=pay.id,
+                                notes=f"Paid {s.name}", created_by=user.user_id))
+    await db.commit(); await db.refresh(pay)
+    return {"id": pay.id, "balance_owed": s.balance_owed}
+
+
+# ========== INCOME ==========
+class IncomeIn(BaseModel):
+    category: str
+    amount: float
+    description: Optional[str] = None
+    income_date: Optional[datetime] = None
+    store_id: Optional[str] = None
+    method: str = "cash"
+    cash_account_id: Optional[str] = None
+
+
+@api.get("/admin/income")
+async def list_income(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                       q: Optional[str] = None, page: int = 1, page_size: int = 50,
+                       store_id: Optional[str] = None):
+    base = select(M.Income)
+    if q:
+        base = base.where(or_(M.Income.category.ilike(f"%{q}%"), M.Income.description.ilike(f"%{q}%")))
+    if store_id:
+        base = base.where(M.Income.store_id == store_id)
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    page_size = min(max(1, page_size), 100); page = max(1, page)
+    rows = (await db.execute(base.order_by(desc(M.Income.income_date)).offset((page-1)*page_size).limit(page_size))).scalars().all()
+    items = [{"id": i.id, "category": i.category, "amount": i.amount, "description": i.description,
+              "store_id": i.store_id, "method": i.method, "cash_account_id": i.cash_account_id,
+              "income_date": i.income_date.isoformat()} for i in rows]
+    return {"items": items, "total": total, "page": page, "page_size": page_size}
+
+
+@api.post("/admin/income")
+async def create_income(payload: IncomeIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_admin)):
+    i = M.Income(**payload.model_dump(exclude_unset=True))
+    i.created_by = user.user_id
+    if not i.income_date:
+        i.income_date = datetime.now(timezone.utc)
+    db.add(i); await db.flush()
+    if payload.cash_account_id:
+        ca = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == payload.cash_account_id))).scalar_one_or_none()
+        if ca:
+            ca.balance += payload.amount
+            db.add(M.CashLedger(cash_account_id=ca.id, direction="in", amount=payload.amount,
+                                source_kind="income", source_id=i.id,
+                                notes=f"{i.category}: {i.description or ''}",
+                                created_by=user.user_id))
+    await db.commit(); await db.refresh(i)
+    return {"id": i.id}
+
+
+@api.delete("/admin/income/{iid}")
+async def delete_income(iid: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    i = (await db.execute(select(M.Income).where(M.Income.id == iid))).scalar_one_or_none()
+    if not i:
+        raise HTTPException(404, "Not found")
+    await db.delete(i); await db.commit()
+    return {"ok": True}
+
+
+# ========== CASH ACCOUNTS ==========
+class CashAccountIn(BaseModel):
+    name: str
+    kind: str = "cash"
+    store_id: Optional[str] = None
+    balance: float = 0.0
+    active: bool = True
+
+
+@api.get("/admin/cash-accounts")
+async def list_cash_accounts(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    rows = (await db.execute(select(M.CashAccount).order_by(M.CashAccount.kind, M.CashAccount.name))).scalars().all()
+    out = []
+    for r in rows:
+        store_name = ""
+        if r.store_id:
+            st = (await db.execute(select(M.Store).where(M.Store.id == r.store_id))).scalar_one_or_none()
+            store_name = st.name if st else ""
+        out.append({"id": r.id, "name": r.name, "kind": r.kind, "store_id": r.store_id,
+                    "store_name": store_name, "balance": r.balance, "active": r.active})
+    return out
+
+
+@api.post("/admin/cash-accounts")
+async def create_cash_account(payload: CashAccountIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    a = M.CashAccount(**payload.model_dump())
+    db.add(a); await db.commit(); await db.refresh(a)
+    return {"id": a.id}
+
+
+@api.put("/admin/cash-accounts/{aid}")
+async def update_cash_account(aid: str, payload: CashAccountIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    a = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == aid))).scalar_one_or_none()
+    if not a:
+        raise HTTPException(404, "Not found")
+    for k, v in payload.model_dump().items():
+        setattr(a, k, v)
+    await db.commit()
+    return {"ok": True}
+
+
+@api.delete("/admin/cash-accounts/{aid}")
+async def delete_cash_account(aid: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    a = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == aid))).scalar_one_or_none()
+    if not a:
+        raise HTTPException(404, "Not found")
+    await db.delete(a); await db.commit()
+    return {"ok": True}
+
+
+@api.get("/admin/cash-ledger")
+async def list_cash_ledger(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                            cash_account_id: Optional[str] = None, limit: int = 200):
+    base = select(M.CashLedger).order_by(desc(M.CashLedger.created_at)).limit(limit)
+    if cash_account_id:
+        base = base.where(M.CashLedger.cash_account_id == cash_account_id)
+    rows = (await db.execute(base)).scalars().all()
+    return [{"id": r.id, "cash_account_id": r.cash_account_id, "direction": r.direction,
+             "amount": r.amount, "source_kind": r.source_kind, "source_id": r.source_id,
+             "notes": r.notes, "created_at": r.created_at.isoformat()} for r in rows]
+
+
+# ========== ACCOUNTING REPORTS (P&L) ==========
+@api.get("/admin/reports/pnl")
+async def pnl_report(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                      from_date: Optional[str] = None, to_date: Optional[str] = None,
+                      store_id: Optional[str] = None, group_by: str = "day"):
+    """Profit & Loss with optional store filter and grouping (day or month)."""
+    now = datetime.now(timezone.utc)
+    start = datetime.fromisoformat(from_date) if from_date else now - timedelta(days=30)
+    end = datetime.fromisoformat(to_date) if to_date else now
+    if start.tzinfo is None: start = start.replace(tzinfo=timezone.utc)
+    if end.tzinfo is None: end = end.replace(tzinfo=timezone.utc)
+
+    o_q = select(M.Order).where(and_(M.Order.created_at >= start, M.Order.created_at <= end, M.Order.payment_status == "paid"))
+    if store_id:
+        o_q = o_q.where(M.Order.store_id == store_id)
+    orders = (await db.execute(o_q)).scalars().all()
+
+    e_q = select(M.Expense).where(and_(M.Expense.expense_date >= start, M.Expense.expense_date <= end))
+    if store_id:
+        e_q = e_q.where(M.Expense.store_id == store_id)
+    expenses = (await db.execute(e_q)).scalars().all()
+
+    i_q = select(M.Income).where(and_(M.Income.income_date >= start, M.Income.income_date <= end))
+    if store_id:
+        i_q = i_q.where(M.Income.store_id == store_id)
+    incomes = (await db.execute(i_q)).scalars().all()
+
+    fmt = "%Y-%m" if group_by == "month" else "%Y-%m-%d"
+    daily = {}
+    def _b(d):
+        return daily.setdefault(d, {"revenue": 0.0, "income": 0.0, "expense": 0.0})
+    for o in orders:
+        _b(o.created_at.strftime(fmt))["revenue"] += o.total
+    for i in incomes:
+        _b(i.income_date.strftime(fmt))["income"] += i.amount
+    for e in expenses:
+        _b(e.expense_date.strftime(fmt))["expense"] += e.amount
+    series = []
+    for k in sorted(daily.keys()):
+        d = daily[k]
+        series.append({"date": k, "revenue": round(d["revenue"], 2), "income": round(d["income"], 2),
+                       "expense": round(d["expense"], 2),
+                       "profit": round(d["revenue"] + d["income"] - d["expense"], 2)})
+    total_rev = round(sum(o.total for o in orders), 2)
+    total_inc = round(sum(i.amount for i in incomes), 2)
+    total_exp = round(sum(e.amount for e in expenses), 2)
+    # By outlet
+    stores = {s.id: s.name for s in (await db.execute(select(M.Store))).scalars().all()}
+    by_outlet = {}
+    for o in orders:
+        sid = o.store_id or "_unassigned"
+        b = by_outlet.setdefault(sid, {"name": stores.get(sid, "Online/Unassigned"), "revenue": 0.0, "expense": 0.0, "income": 0.0})
+        b["revenue"] += o.total
+    for e in expenses:
+        sid = e.store_id or "_unassigned"
+        b = by_outlet.setdefault(sid, {"name": stores.get(sid, "Online/Unassigned"), "revenue": 0.0, "expense": 0.0, "income": 0.0})
+        b["expense"] += e.amount
+    for i in incomes:
+        sid = i.store_id or "_unassigned"
+        b = by_outlet.setdefault(sid, {"name": stores.get(sid, "Online/Unassigned"), "revenue": 0.0, "expense": 0.0, "income": 0.0})
+        b["income"] += i.amount
+    by_outlet_arr = []
+    for sid, v in by_outlet.items():
+        by_outlet_arr.append({"store_id": sid, "store_name": v["name"], "revenue": round(v["revenue"], 2),
+                               "income": round(v["income"], 2), "expense": round(v["expense"], 2),
+                               "profit": round(v["revenue"] + v["income"] - v["expense"], 2)})
+    return {
+        "total_revenue": total_rev, "total_income": total_inc, "total_expense": total_exp,
+        "profit": round(total_rev + total_inc - total_exp, 2),
+        "series": series, "by_outlet": by_outlet_arr,
+        "from": start.isoformat(), "to": end.isoformat(), "group_by": group_by,
+    }
+
+
+@api.get("/admin/reports/pnl/export")
+async def pnl_export(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                      from_date: Optional[str] = None, to_date: Optional[str] = None,
+                      store_id: Optional[str] = None, group_by: str = "day"):
+    """Excel xlsx export of P&L."""
+    import io
+    from openpyxl import Workbook
+    data = await pnl_report(db, _=_, from_date=from_date, to_date=to_date, store_id=store_id, group_by=group_by)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "P&L Summary"
+    ws.append(["Period", data["from"], "to", data["to"]])
+    ws.append([])
+    ws.append(["Total Revenue", data["total_revenue"]])
+    ws.append(["Total Income", data["total_income"]])
+    ws.append(["Total Expense", data["total_expense"]])
+    ws.append(["Net Profit", data["profit"]])
+    ws.append([])
+    ws.append([group_by.capitalize(), "Revenue", "Income", "Expense", "Profit"])
+    for s in data["series"]:
+        ws.append([s["date"], s["revenue"], s["income"], s["expense"], s["profit"]])
+    ws2 = wb.create_sheet("By Outlet")
+    ws2.append(["Outlet", "Revenue", "Income", "Expense", "Profit"])
+    for o in data["by_outlet"]:
+        ws2.append([o["store_name"], o["revenue"], o["income"], o["expense"], o["profit"]])
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return FastResponse(content=buf.getvalue(),
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": f'attachment; filename="pnl_{group_by}.xlsx"'})
+
+
+# ========== PUBLIC RECEIPT (for SMS link) ==========
+@api.get("/receipt/{order_number}")
+async def public_receipt(order_number: str, db: AsyncSession = Depends(get_db)):
+    """Returns a public-friendly receipt JSON. Used by /receipt/{n} frontend page."""
+    o = (await db.execute(select(M.Order).where(M.Order.order_number == order_number))).scalar_one_or_none()
+    if not o:
+        raise HTTPException(404, "Order not found")
+    cs = (await db.execute(select(M.CompanySettings).where(M.CompanySettings.id == "default"))).scalar_one_or_none()
+    items = (await db.execute(select(M.OrderItem).where(M.OrderItem.order_id == o.id))).scalars().all()
+    return {
+        "order_number": o.order_number, "status": o.status, "payment_status": o.payment_status,
+        "payment_method": o.payment_method, "subtotal": o.subtotal, "discount": o.discount,
+        "shipping": o.shipping, "total": o.total, "cash_tendered": o.cash_tendered, "cash_change": o.cash_change,
+        "card_last4": o.card_last4, "customer_name": o.customer_name,
+        "created_at": o.created_at.isoformat(),
+        "items": [{"name": i.product_name, "variant": i.variant_label, "qty": i.quantity,
+                   "unit": i.unit_price, "subtotal": i.subtotal} for i in items],
+        "company": {"name": cs.company_name if cs else "Store", "address": cs.address if cs else None,
+                    "phone": cs.phone if cs else None, "email": cs.email if cs else None,
+                    "currency": cs.currency if cs else "LKR"},
+    }
+
+
+# ========== CSV IMPORT (Products + Inventory) ==========
+class ProductCsvRow(BaseModel):
+    name: str
+    sku: Optional[str] = None
+    base_price: float = 0
+    compare_price: Optional[float] = None
+    cost_price: Optional[float] = None
+    category: Optional[str] = None  # by name; resolved
+    description: Optional[str] = None
+    size: Optional[str] = None
+    color: Optional[str] = None
+    color_hex: Optional[str] = None
+    stock: int = 0
+    featured: bool = False
+    status: str = "active"
+
+
+class CsvImportIn(BaseModel):
+    rows: List[dict]  # parsed CSV rows
+    commit: bool = False  # if False, dry-run for preview
+
+
+@api.post("/admin/import/products")
+async def import_products(payload: CsvImportIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    """Bulk import products + first variant + initial inventory.
+    Each row: name, sku, base_price, compare_price, cost_price, category(name), description,
+              size, color, color_hex, stock, featured, status.
+    Existing product (matched by name+sku) updates the variant by size/color and adjusts inventory.
+    """
+    cats_by_name = {c.name.lower(): c for c in (await db.execute(select(M.Category))).scalars().all()}
+    store = await _ensure_default_store(db)
+    summary = {"created": 0, "updated": 0, "errors": []}
+    preview = []
+    for idx, raw in enumerate(payload.rows, start=1):
+        try:
+            row = ProductCsvRow(
+                name=str(raw.get("name", "")).strip(),
+                sku=(raw.get("sku") or None),
+                base_price=float(raw.get("base_price") or 0),
+                compare_price=float(raw["compare_price"]) if raw.get("compare_price") else None,
+                cost_price=float(raw["cost_price"]) if raw.get("cost_price") else None,
+                category=(raw.get("category") or None),
+                description=(raw.get("description") or None),
+                size=(raw.get("size") or None),
+                color=(raw.get("color") or None),
+                color_hex=(raw.get("color_hex") or None),
+                stock=int(raw.get("stock") or 0),
+                featured=bool(raw.get("featured") in (True, "true", "1", 1, "TRUE")),
+                status=(raw.get("status") or "active"),
+            )
+            if not row.name:
+                raise ValueError("Missing name")
+            cat = cats_by_name.get((row.category or "").lower()) if row.category else None
+            cat_id = cat.id if cat else None
+            existing = None
+            if row.sku:
+                existing = (await db.execute(select(M.Product).where(M.Product.sku == row.sku))).scalar_one_or_none()
+            if not existing:
+                existing = (await db.execute(select(M.Product).where(M.Product.name == row.name))).scalar_one_or_none()
+            if existing:
+                p = existing
+                p.base_price = row.base_price
+                p.compare_price = row.compare_price
+                p.cost_price = row.cost_price
+                p.sku = row.sku or p.sku
+                p.category_id = cat_id or p.category_id
+                p.featured = row.featured
+                p.status = row.status
+                if row.description: p.description = row.description
+                action = "updated"
+            else:
+                slug = slugify(row.name) + "-" + uuid.uuid4().hex[:4]
+                p = M.Product(name=row.name, slug=slug, description=row.description,
+                              category_id=cat_id, base_price=row.base_price,
+                              compare_price=row.compare_price, cost_price=row.cost_price,
+                              sku=row.sku, status=row.status, featured=row.featured)
+                db.add(p)
+                await db.flush()
+                action = "created"
+            preview.append({"row": idx, "name": row.name, "action": action, "size": row.size, "color": row.color, "stock": row.stock})
+            if not payload.commit:
+                continue
+            # Variant + inventory
+            v = None
+            if row.size or row.color:
+                vq = select(M.Variant).where(and_(M.Variant.product_id == p.id, M.Variant.size == row.size, M.Variant.color == row.color))
+                v = (await db.execute(vq)).scalar_one_or_none()
+                if not v:
+                    v = M.Variant(product_id=p.id, size=row.size, color=row.color, color_hex=row.color_hex)
+                    db.add(v); await db.flush()
+                else:
+                    if row.color_hex: v.color_hex = row.color_hex
+                inv = (await db.execute(select(M.Inventory).where(and_(M.Inventory.variant_id == v.id, M.Inventory.store_id == store.id)))).scalar_one_or_none()
+                if inv:
+                    inv.quantity = row.stock
+                else:
+                    db.add(M.Inventory(variant_id=v.id, store_id=store.id, quantity=row.stock))
+            if action == "created":
+                summary["created"] += 1
+            else:
+                summary["updated"] += 1
+        except Exception as e:
+            summary["errors"].append({"row": idx, "error": str(e)})
+            if payload.commit:
+                # rollback this row by skipping; SQLAlchemy session is flushed; let it commit at the end
+                continue
+    if payload.commit:
+        await db.commit()
+    else:
+        await db.rollback()
+    return {"summary": summary, "preview": preview, "committed": payload.commit}
+
+
+@api.get("/admin/import/products/template")
+async def products_csv_template():
+    csv = "name,sku,base_price,compare_price,cost_price,category,description,size,color,color_hex,stock,featured,status\n"
+    csv += 'Sample Tee,TS-001,2500,3000,1500,Tees,A soft cotton tee.,M,Black,#000000,12,false,active\n'
+    csv += 'Sample Tee,TS-001,2500,3000,1500,Tees,A soft cotton tee.,L,White,#ffffff,8,false,active\n'
+    return FastResponse(content=csv, media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="products_template.csv"'})
 
 
 app.include_router(api)

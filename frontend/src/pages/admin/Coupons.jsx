@@ -10,7 +10,7 @@ import { Plus, Trash2, Pencil, Search } from "lucide-react";
 import { toast } from "sonner";
 import Pagination from "@/components/admin/Pagination";
 
-const empty = { id: null, code: "", type: "percent", value: 10, min_order: 0, usage_limit: 0, active: true, expires_at: null };
+const empty = { id: null, code: "", type: "percent", value: 10, min_order: 0, usage_limit: 0, active: true, expires_at: null, scope: "all", scope_product_ids: [], scope_category_ids: [] };
 const PAGE_SIZE = 50;
 
 export default function Coupons() {
@@ -20,6 +20,8 @@ export default function Coupons() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState(empty);
   const [search, setSearch] = useState("");
+  const [products, setProducts] = useState([]);
+  const [cats, setCats] = useState([]);
 
   const load = async () => {
     const { data } = await api.get("/admin/coupons", { params: { ...(search ? { q: search } : {}), page, page_size: PAGE_SIZE } });
@@ -27,6 +29,15 @@ export default function Coupons() {
   };
   useEffect(() => { const t = setTimeout(load, 200); return () => clearTimeout(t); }, [search, page]);
   useEffect(() => { setPage(1); }, [search]);
+  useEffect(() => {
+    api.get("/admin/products", { params: { page: 1, page_size: 100 } }).then(({ data }) => setProducts(data.items || []));
+    api.get("/categories").then(({ data }) => setCats(data || []));
+  }, []);
+
+  const openEdit = (c) => {
+    setForm({ ...empty, ...c, scope_product_ids: c.scope_product_ids || [], scope_category_ids: c.scope_category_ids || [] });
+    setOpen(true);
+  };
 
   const save = async () => {
     try {
@@ -37,6 +48,10 @@ export default function Coupons() {
     } catch { toast.error("Failed"); }
   };
   const del = async (id) => { if (!confirm("Delete?")) return; await api.delete(`/admin/coupons/${id}`); load(); };
+  const toggleId = (key, id) => setForm(f => {
+    const arr = f[key] || [];
+    return { ...f, [key]: arr.includes(id) ? arr.filter(x => x !== id) : [...arr, id] };
+  });
 
   return (
     <div className="space-y-6 text-white" data-testid="admin-coupons">
@@ -60,7 +75,7 @@ export default function Coupons() {
                 <td className="p-3 font-mono">{c.used_count}/{c.usage_limit || "∞"}</td>
                 <td className="p-3">{c.active ? <span className="text-green-400 text-xs">Active</span> : <span className="text-zinc-500 text-xs">Off</span>}</td>
                 <td className="p-3 text-right">
-                  <button onClick={() => { setForm(c); setOpen(true); }} className="text-zinc-400 hover:text-white p-1"><Pencil className="h-4 w-4" /></button>
+                  <button onClick={() => openEdit(c)} className="text-zinc-400 hover:text-white p-1"><Pencil className="h-4 w-4" /></button>
                   <button onClick={() => del(c.id)} className="text-zinc-400 hover:text-red-400 p-1"><Trash2 className="h-4 w-4" /></button>
                 </td>
               </tr>
@@ -71,13 +86,13 @@ export default function Coupons() {
       </div>
       <Pagination page={page} pageSize={PAGE_SIZE} total={total} onChange={setPage} />
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="bg-zinc-950 border-zinc-800 text-white rounded-none max-w-md">
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white rounded-none max-w-lg">
           <DialogHeader><DialogTitle className="font-heading uppercase tracking-widest">{form.id ? "Edit" : "New"} Coupon</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-2">
             <div><Label className="text-xs uppercase tracking-widest text-zinc-400">Code</Label><Input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })} className="bg-zinc-900 border-zinc-800 rounded-none mt-1 font-mono" data-testid="coupon-code" /></div>
             <div>
               <Label className="text-xs uppercase tracking-widest text-zinc-400">Type</Label>
-              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}><SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none mt-1"><SelectValue /></SelectTrigger><SelectContent className="bg-zinc-950 border-zinc-800 text-white"><SelectItem value="percent">Percent (%)</SelectItem><SelectItem value="fixed">Fixed ($)</SelectItem></SelectContent></Select>
+              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}><SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none mt-1"><SelectValue /></SelectTrigger><SelectContent className="bg-zinc-950 border-zinc-800 text-white"><SelectItem value="percent">Percent (%)</SelectItem><SelectItem value="fixed">Fixed (LKR)</SelectItem></SelectContent></Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label className="text-xs uppercase tracking-widest text-zinc-400">Value</Label><Input type="number" step="0.01" value={form.value} onChange={(e) => setForm({ ...form, value: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none mt-1" /></div>
@@ -85,6 +100,39 @@ export default function Coupons() {
             </div>
             <div><Label className="text-xs uppercase tracking-widest text-zinc-400">Usage Limit (0=∞)</Label><Input type="number" value={form.usage_limit} onChange={(e) => setForm({ ...form, usage_limit: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none mt-1" /></div>
             <div className="flex items-center gap-2"><Label className="text-xs uppercase tracking-widest text-zinc-400">Active</Label><Switch checked={form.active} onCheckedChange={(v) => setForm({ ...form, active: v })} /></div>
+
+            <div className="border border-zinc-800 p-3 space-y-3">
+              <Label className="text-xs uppercase tracking-widest text-zinc-400">Applies To</Label>
+              <Select value={form.scope || "all"} onValueChange={(v) => setForm({ ...form, scope: v })}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none" data-testid="coupon-scope-select"><SelectValue/></SelectTrigger>
+                <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                  <SelectItem value="all">All products</SelectItem>
+                  <SelectItem value="products">Specific products</SelectItem>
+                  <SelectItem value="categories">Specific categories (incl. sub-cats)</SelectItem>
+                </SelectContent>
+              </Select>
+              {form.scope === "products" && (
+                <div className="max-h-40 overflow-y-auto border border-zinc-900 p-2 space-y-1" data-testid="coupon-products-picker">
+                  {products.map(p => (
+                    <label key={p.id} className="flex items-center gap-2 text-xs hover:bg-zinc-900/40 p-1">
+                      <input type="checkbox" checked={(form.scope_product_ids || []).includes(p.id)} onChange={() => toggleId("scope_product_ids", p.id)} className="accent-[#FF3B30]"/>
+                      <span>{p.name}</span>
+                    </label>
+                  ))}
+                  {products.length === 0 && <div className="text-zinc-500 text-xs p-2">No products</div>}
+                </div>
+              )}
+              {form.scope === "categories" && (
+                <div className="max-h-40 overflow-y-auto border border-zinc-900 p-2 space-y-1" data-testid="coupon-cats-picker">
+                  {cats.map(c => (
+                    <label key={c.id} className="flex items-center gap-2 text-xs hover:bg-zinc-900/40 p-1">
+                      <input type="checkbox" checked={(form.scope_category_ids || []).includes(c.id)} onChange={() => toggleId("scope_category_ids", c.id)} className="accent-[#FF3B30]"/>
+                      <span>{c.name}{c.parent_id?" (sub)":""}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter><Button onClick={save} className="bg-[#FF3B30] hover:bg-[#D92D23] rounded-none uppercase tracking-widest font-bold" data-testid="save-coupon-btn">Save</Button></DialogFooter>
         </DialogContent>

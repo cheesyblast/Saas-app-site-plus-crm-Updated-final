@@ -80,6 +80,61 @@ function HeroEditor({ config, onChange }) {
       <MediaUploader value={{ image_id: c.image_id, image_url: c.image_url }} onChange={(v) => onChange({ ...c, image_id: v.image_id, image_url: v.image_url })} label="Background Image" />
 
       <div className="border border-zinc-800 p-3">
+        <Label className="text-xs uppercase tracking-widest text-zinc-400">Foreground Image (optional, side-by-side with text)</Label>
+        <p className="text-[10px] text-zinc-500 mt-1 mb-3">Place a product/lifestyle photo next to the headline.</p>
+        <MediaUploader value={{ image_id: c.fg_image_id, image_url: c.fg_image_url }} onChange={(v) => onChange({ ...c, fg_image_id: v.image_id, fg_image_url: v.image_url })} label=""/>
+        <Row>
+          <F label="Foreground side">
+            <Select value={c.fg_image_side || "right"} onValueChange={(v) => set("fg_image_side", v)}>
+              <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                <SelectItem value="left">Left of text</SelectItem>
+                <SelectItem value="right">Right of text</SelectItem>
+              </SelectContent>
+            </Select>
+          </F>
+        </Row>
+      </div>
+
+      <div className="border border-zinc-800 p-3 space-y-3">
+        <Label className="text-xs uppercase tracking-widest text-zinc-400">Text Alignment</Label>
+        <Row>
+          <F label="Eyebrow / Badge">
+            <Select value={c.eyebrow_align || "left"} onValueChange={(v) => set("eyebrow_align", v)}>
+              <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                <SelectItem value="left">Left</SelectItem><SelectItem value="center">Center</SelectItem><SelectItem value="right">Right</SelectItem>
+              </SelectContent>
+            </Select>
+          </F>
+          <F label="Heading">
+            <Select value={c.heading_align || "left"} onValueChange={(v) => set("heading_align", v)}>
+              <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                <SelectItem value="left">Left</SelectItem><SelectItem value="center">Center</SelectItem><SelectItem value="right">Right</SelectItem>
+              </SelectContent>
+            </Select>
+          </F>
+          <F label="Paragraph">
+            <Select value={c.paragraph_align || "left"} onValueChange={(v) => set("paragraph_align", v)}>
+              <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                <SelectItem value="left">Left</SelectItem><SelectItem value="center">Center</SelectItem><SelectItem value="right">Right</SelectItem>
+              </SelectContent>
+            </Select>
+          </F>
+          <F label="Buttons">
+            <Select value={c.buttons_align || "left"} onValueChange={(v) => set("buttons_align", v)}>
+              <SelectTrigger className={inputCls}><SelectValue /></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                <SelectItem value="left">Left</SelectItem><SelectItem value="center">Center</SelectItem><SelectItem value="right">Right</SelectItem>
+              </SelectContent>
+            </Select>
+          </F>
+        </Row>
+      </div>
+
+      <div className="border border-zinc-800 p-3">
         <Label className="text-xs uppercase tracking-widest text-zinc-400">Background Video (optional, takes priority over image)</Label>
         <p className="text-[10px] text-zinc-500 mt-1 mb-3">Recommended: <span className="text-zinc-300">1920×1080 MP4 (h.264), &lt; 10 MB, 10–20 sec loop</span>. Autoplays muted; viewer can unmute.</p>
         <MediaUploader value={{ image_id: c.video_id, image_url: c.video_url }} onChange={(v) => onChange({ ...c, video_id: v.image_id, video_url: v.image_url })} label="" accept="video/*"/>

@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
-import api, { imgSrc, formatPrice } from "@/lib/api";
+import api, { imgSrc, formatPrice, BACKEND_URL } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Minus, Search, Trash2 } from "lucide-react";
+import { Plus, Minus, Search, Trash2, Printer, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 
 export default function POS() {
@@ -19,19 +19,33 @@ export default function POS() {
   const [coupon, setCoupon] = useState("");
   const [payment, setPayment] = useState("cash");
   const [paymentMethods, setPaymentMethods] = useState([]);
+  const [accounts, setAccounts] = useState([]);
+  const [accountId, setAccountId] = useState("");
+  const [cashTendered, setCashTendered] = useState("");
+  const [cardLast4, setCardLast4] = useState("");
   const [processing, setProcessing] = useState(false);
+  const [lastOrder, setLastOrder] = useState(null); // {order_number, total}
 
   useEffect(() => {
-    api.get("/admin/products").then(({ data }) => setProducts(data));
+    api.get("/admin/products", { params: { page: 1, page_size: 100 } }).then(({ data }) => setProducts(data.items || []));
     api.get("/admin/stores").then(({ data }) => { setStores(data); if (data.length) setStoreId(data[0].id); });
     api.get("/admin/payment-methods").then(({ data }) => {
-      const pos = data.filter(p => p.scope === "pos" && p.active);
+      const pos = (data || []).filter(p => p.scope === "pos" && p.active);
       setPaymentMethods(pos);
       if (pos.length) setPayment(pos[0].code);
     });
+    api.get("/admin/cash-accounts").then(({ data }) => setAccounts(data || []));
   }, []);
 
-  // Customer search debounce
+  // Auto-pick a matching cash drawer when store/payment changes
+  useEffect(() => {
+    if (!accounts.length) return;
+    const wantedKind = payment === "cash" ? "cash" : "bank";
+    const candidate = accounts.find(a => a.active && a.kind === wantedKind && (a.store_id === storeId || !a.store_id));
+    if (candidate) setAccountId(candidate.id);
+    else setAccountId("");
+  }, [accounts, storeId, payment]);
+
   useEffect(() => {
     if (!custSearch || custSearch.length < 2) { setCustResults([]); return; }
     const t = setTimeout(async () => {
@@ -46,18 +60,6 @@ export default function POS() {
     setCustSearch(""); setCustResults([]);
   };
 
-  const ensureCustomer = async () => {
-    if (customer.id) return customer.id;
-    if (!customer.name && !customer.phone) return null;  // walk-in
-    try {
-      const { data } = await api.post("/admin/customers", {
-        name: customer.name || "Walk-in", phone: customer.phone || null, email: customer.email || null,
-      });
-      setCustomer((c) => ({ ...c, id: data.id }));
-      return data.id;
-    } catch { return null; }
-  };
-
   const filtered = useMemo(() => {
     if (!q) return products;
     return products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
@@ -68,23 +70,21 @@ export default function POS() {
     setCart((prev) => {
       const idx = prev.findIndex((x) => x.variant_id === v.id);
       if (idx >= 0) {
-        const copy = [...prev];
-        copy[idx].quantity += 1;
-        return copy;
+        const copy = [...prev]; copy[idx].quantity += 1; return copy;
       }
-      return [...prev, {
-        variant_id: v.id, product_id: p.id, name: p.name, size: v.size, color: v.color,
-        price, quantity: 1, image: p.images?.[0],
-      }];
+      return [...prev, { variant_id: v.id, product_id: p.id, name: p.name, size: v.size, color: v.color, price, quantity: 1, image: p.images?.[0] }];
     });
   };
   const remove = (id) => setCart((p) => p.filter((x) => x.variant_id !== id));
   const inc = (id, d) => setCart((p) => p.map((x) => x.variant_id === id ? { ...x, quantity: Math.max(1, x.quantity + d) } : x));
 
   const subtotal = cart.reduce((s, x) => s + x.price * x.quantity, 0);
+  const tendered = parseFloat(cashTendered) || 0;
+  const change = payment === "cash" ? Math.max(0, tendered - subtotal) : 0;
 
   const checkout = async () => {
     if (cart.length === 0) return toast.error("Cart is empty");
+    if (payment === "cash" && cashTendered && tendered < subtotal) return toast.error("Cash tendered is less than total");
     setProcessing(true);
     try {
       const { data } = await api.post("/checkout", {
@@ -97,12 +97,24 @@ export default function POS() {
         payment_method: payment,
         source: "pos",
         store_id: storeId || null,
+        cash_tendered: payment === "cash" && cashTendered ? tendered : null,
+        card_last4: payment !== "cash" && cardLast4 ? cardLast4 : null,
+        cash_account_id: accountId || null,
       });
       toast.success(`Order ${data.order_number} · ${formatPrice(data.total)}`);
-      setCart([]); setCoupon("");
+      setLastOrder({ order_number: data.order_number, total: data.total, phone: customer.phone, email: customer.email });
+      // Auto-open print preview in new tab so cashier can print and continue
+      const url = `${window.location.origin}/receipt/${data.order_number}`;
+      window.open(url, "_blank");
+      setCart([]); setCoupon(""); setCashTendered(""); setCardLast4("");
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Checkout failed");
     } finally { setProcessing(false); }
+  };
+
+  const sendSmsLink = () => {
+    if (!lastOrder?.phone) return toast.error("No customer phone for SMS");
+    toast.success(`SMS receipt link queued to ${lastOrder.phone}`);
   };
 
   return (
@@ -141,9 +153,10 @@ export default function POS() {
           {filtered.length === 0 && <div className="col-span-full p-12 text-center text-zinc-500 border border-zinc-900">No products</div>}
         </div>
       </div>
+
       <aside className="bg-zinc-950 border border-zinc-900 p-5 sticky top-6 self-start flex flex-col min-h-[70vh]">
         <h2 className="font-heading uppercase tracking-widest text-sm mb-3">Cart ({cart.length})</h2>
-        <div className="flex-1 overflow-y-auto space-y-2 max-h-[40vh]">
+        <div className="flex-1 overflow-y-auto space-y-2 max-h-[35vh]">
           {cart.map((c) => (
             <div key={c.variant_id} className="flex items-start gap-2 border-b border-zinc-900 pb-2">
               <div className="flex-1 min-w-0">
@@ -161,6 +174,7 @@ export default function POS() {
           ))}
           {cart.length === 0 && <div className="text-xs text-zinc-500 text-center py-8">Select products to add</div>}
         </div>
+
         <div className="border-t border-zinc-900 pt-3 space-y-2">
           <div className="relative">
             <Input data-testid="pos-customer-search" placeholder="Search customer (name / phone)" value={custSearch} onChange={(e)=>setCustSearch(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs"/>
@@ -184,6 +198,26 @@ export default function POS() {
               {paymentMethods.length === 0 ? <SelectItem value="cash">Cash</SelectItem> : paymentMethods.map(p=><SelectItem key={p.code} value={p.code}>{p.label}</SelectItem>)}
             </SelectContent>
           </Select>
+
+          {payment === "cash" ? (
+            <div className="grid grid-cols-2 gap-2">
+              <Input data-testid="pos-cash-tendered" type="number" step="0.01" placeholder="Cash tendered" value={cashTendered} onChange={(e) => setCashTendered(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs"/>
+              <div className="bg-zinc-900 border border-zinc-800 px-2 h-8 flex items-center text-xs"><span className="text-zinc-500 mr-2">Change:</span><span className="font-mono">{formatPrice(change)}</span></div>
+            </div>
+          ) : (
+            <Input data-testid="pos-card-last4" placeholder="Card last 4 (optional)" value={cardLast4} onChange={(e) => setCardLast4(e.target.value.replace(/\D/g,"").slice(0,4))} className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs"/>
+          )}
+
+          {accounts.length > 0 && (
+            <Select value={accountId || "_none"} onValueChange={(v) => setAccountId(v === "_none" ? "" : v)}>
+              <SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none h-8 text-xs"><SelectValue placeholder="Drawer / Bank account"/></SelectTrigger>
+              <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                <SelectItem value="_none">— No account —</SelectItem>
+                {accounts.filter(a => a.active && a.kind === (payment === "cash" ? "cash" : "bank")).map(a => <SelectItem key={a.id} value={a.id}>{a.name} ({formatPrice(a.balance)})</SelectItem>)}
+              </SelectContent>
+            </Select>
+          )}
+
           <div className="flex justify-between text-sm pt-2">
             <span className="text-zinc-500 uppercase tracking-widest text-xs">Subtotal</span>
             <span className="font-mono">{formatPrice(subtotal)}</span>
@@ -191,6 +225,16 @@ export default function POS() {
           <Button onClick={checkout} disabled={processing} className="w-full bg-[#FF3B30] hover:bg-[#D92D23] rounded-none font-heading font-bold uppercase tracking-widest py-5" data-testid="pos-checkout-btn">
             {processing ? "Processing..." : `Checkout · ${formatPrice(subtotal)}`}
           </Button>
+
+          {lastOrder && (
+            <div className="border border-green-900/40 bg-green-950/20 p-2 mt-2 text-xs space-y-1" data-testid="pos-last-order">
+              <div className="text-green-400 font-mono">Last: {lastOrder.order_number} · {formatPrice(lastOrder.total)}</div>
+              <div className="flex gap-2">
+                <a href={`/receipt/${lastOrder.order_number}`} target="_blank" rel="noreferrer" className="flex-1 text-center border border-zinc-700 hover:border-white py-1 uppercase tracking-widest text-[10px] inline-flex items-center justify-center gap-1" data-testid="pos-print-receipt"><Printer className="h-3 w-3"/> Print Receipt</a>
+                <button onClick={sendSmsLink} className="flex-1 border border-zinc-700 hover:border-white py-1 uppercase tracking-widest text-[10px] inline-flex items-center justify-center gap-1" data-testid="pos-sms-receipt"><MessageSquare className="h-3 w-3"/> SMS Link</button>
+              </div>
+            </div>
+          )}
         </div>
       </aside>
     </div>

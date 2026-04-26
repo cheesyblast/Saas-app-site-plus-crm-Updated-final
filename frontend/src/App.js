@@ -39,6 +39,11 @@ import AdminMarketing from "@/pages/admin/Marketing";
 import AdminNotifications from "@/pages/admin/Notifications";
 import AdminBuilder from "@/pages/admin/Builder";
 import AdminSettings from "@/pages/admin/Settings";
+import AdminSuppliers from "@/pages/admin/Suppliers";
+import AdminIncExp from "@/pages/admin/IncomeExpense";
+import AdminCashAccounts from "@/pages/admin/CashAccounts";
+import AdminCsvImport from "@/pages/admin/CsvImport";
+import Receipt from "@/pages/storefront/Receipt";
 import Dashboard_Redirect from "@/pages/DashboardRouter";
 
 function SetupGate() {
@@ -70,6 +75,7 @@ function AppRouter() {
         <Route path="/register" element={<Register />} />
         <Route path="/admin/login" element={<AdminLogin />} />
         <Route path="/dashboard" element={<Dashboard_Redirect />} />
+        <Route path="/receipt/:orderNumber" element={<Receipt />} />
 
         <Route element={<StorefrontLayout />}>
           <Route path="/" element={<Home />} />
@@ -92,7 +98,10 @@ function AppRouter() {
           <Route path="/admin/pos" element={<AdminPOS />} />
           <Route path="/admin/stores" element={<AdminStores />} />
           <Route path="/admin/coupons" element={<AdminCoupons />} />
-          <Route path="/admin/expenses" element={<AdminExpenses />} />
+          <Route path="/admin/expenses" element={<AdminIncExp />} />
+          <Route path="/admin/suppliers" element={<AdminSuppliers />} />
+          <Route path="/admin/cash-accounts" element={<AdminCashAccounts />} />
+          <Route path="/admin/import" element={<AdminCsvImport />} />
           <Route path="/admin/payroll" element={<AdminPayroll />} />
           <Route path="/admin/staff" element={<AdminStaff />} />
           <Route path="/admin/reports" element={<AdminReports />} />

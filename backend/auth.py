@@ -132,6 +132,23 @@ def require_roles(*allowed: str):
     return checker
 
 
+# Granular permission gate: super_admin always passes; others require the named permission flag.
+ALL_PERMISSIONS = {"products", "orders", "pos", "inventory", "reports", "accounting", "settings", "suppliers", "marketing", "customers"}
+
+
+def require_perm(name: str):
+    async def checker(user: User = Depends(get_current_user)) -> User:
+        if user.role not in ADMIN_ROLES:
+            raise HTTPException(status_code=403, detail="Admin access required")
+        if user.role == "super_admin":
+            return user
+        perms = user.permissions or {}
+        if not perms.get(name, False):
+            raise HTTPException(status_code=403, detail=f"Missing permission: {name}")
+        return user
+    return checker
+
+
 # ---- Brute force lockout ----
 async def check_lockout(db: AsyncSession, identifier: str):
     row = (await db.execute(select(LoginAttempt).where(LoginAttempt.identifier == identifier))).scalar_one_or_none()

@@ -25,6 +25,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=True)  # bcrypt; null for OAuth-only customers
     auth_provider = Column(String(16), default="password", nullable=False)  # password, google
     role = Column(String(32), nullable=False, default="customer", index=True)
+    permissions = Column(JSON, nullable=True)  # {products:bool, orders:bool, pos:bool, inventory:bool, reports:bool, accounting:bool, settings:bool, suppliers:bool}
     base_salary = Column(Float, nullable=True)
     active = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
@@ -105,8 +106,10 @@ class Product(Base):
     slug = Column(String(255), unique=True, nullable=False, index=True)
     description = Column(Text, nullable=True)
     category_id = Column(String(64), ForeignKey("categories.id", ondelete="SET NULL"), index=True, nullable=True)
+    supplier_id = Column(String(64), ForeignKey("suppliers.id", ondelete="SET NULL"), nullable=True, index=True)
     base_price = Column(Float, nullable=False, default=0.0)
     compare_price = Column(Float, nullable=True)
+    cost_price = Column(Float, nullable=True)
     sku = Column(String(64), nullable=True)
     status = Column(String(16), default="active", nullable=False, index=True)
     featured = Column(Boolean, default=False, nullable=False, index=True)
@@ -211,7 +214,11 @@ class Order(Base):
     shipping = Column(Float, nullable=False, default=0.0)
     tax = Column(Float, nullable=False, default=0.0)
     total = Column(Float, nullable=False, default=0.0)
+    cash_tendered = Column(Float, nullable=True)
+    cash_change = Column(Float, nullable=True)
+    card_last4 = Column(String(8), nullable=True)
     store_id = Column(String(64), ForeignKey("stores.id", ondelete="SET NULL"), nullable=True)
+    cash_account_id = Column(String(64), nullable=True)
     created_by = Column(String(64), nullable=True)
     source = Column(String(16), default="online", nullable=False)
     notes = Column(Text, nullable=True)
@@ -243,7 +250,96 @@ class Coupon(Base):
     used_count = Column(Integer, default=0, nullable=False)
     active = Column(Boolean, default=True, nullable=False)
     expires_at = Column(DateTime(timezone=True), nullable=True)
+    scope = Column(String(16), default="all", nullable=False)  # all, products, categories
+    scope_product_ids = Column(JSON, nullable=True)  # list of product ids
+    scope_category_ids = Column(JSON, nullable=True)  # list of category ids
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+# ---- Suppliers (B2B / Vendors) ----
+class Supplier(Base):
+    __tablename__ = "suppliers"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    name = Column(String(255), nullable=False)
+    contact_person = Column(String(128), nullable=True)
+    phone = Column(String(32), nullable=True)
+    email = Column(String(255), nullable=True)
+    address = Column(Text, nullable=True)
+    notes = Column(Text, nullable=True)
+    balance_owed = Column(Float, default=0.0, nullable=False)  # outstanding payable
+    total_purchases = Column(Float, default=0.0, nullable=False)
+    total_paid = Column(Float, default=0.0, nullable=False)
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class SupplierInvoice(Base):
+    """Stock-in events that produce a payable."""
+    __tablename__ = "supplier_invoices"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    supplier_id = Column(String(64), ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False, index=True)
+    reference = Column(String(64), nullable=True)
+    amount = Column(Float, nullable=False)
+    paid = Column(Float, default=0.0, nullable=False)
+    notes = Column(Text, nullable=True)
+    invoice_date = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    created_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class SupplierPayment(Base):
+    __tablename__ = "supplier_payments"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    supplier_id = Column(String(64), ForeignKey("suppliers.id", ondelete="CASCADE"), nullable=False, index=True)
+    invoice_id = Column(String(64), ForeignKey("supplier_invoices.id", ondelete="SET NULL"), nullable=True)
+    amount = Column(Float, nullable=False)
+    method = Column(String(16), default="cash", nullable=False)  # cash, bank
+    cash_account_id = Column(String(64), nullable=True)
+    notes = Column(Text, nullable=True)
+    paid_date = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    created_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+# ---- Accounting: Income, expanded Expenses, CashAccounts ----
+class Income(Base):
+    __tablename__ = "income"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    category = Column(String(64), nullable=False)
+    amount = Column(Float, nullable=False)
+    description = Column(Text, nullable=True)
+    store_id = Column(String(64), ForeignKey("stores.id", ondelete="SET NULL"), nullable=True, index=True)
+    method = Column(String(16), default="cash", nullable=False)  # cash, bank
+    cash_account_id = Column(String(64), nullable=True)
+    income_date = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    created_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class CashAccount(Base):
+    """Per-store cash drawer or bank account."""
+    __tablename__ = "cash_accounts"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    name = Column(String(128), nullable=False)
+    kind = Column(String(16), default="cash", nullable=False)  # cash, bank
+    store_id = Column(String(64), ForeignKey("stores.id", ondelete="SET NULL"), nullable=True, index=True)
+    balance = Column(Float, default=0.0, nullable=False)
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class CashLedger(Base):
+    """Every cash/bank movement: order_paid, expense_paid, income_received, supplier_paid, transfer."""
+    __tablename__ = "cash_ledger"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    cash_account_id = Column(String(64), ForeignKey("cash_accounts.id", ondelete="CASCADE"), nullable=False, index=True)
+    direction = Column(String(8), nullable=False)  # in, out
+    amount = Column(Float, nullable=False)
+    source_kind = Column(String(32), nullable=False)  # order, expense, income, supplier, manual
+    source_id = Column(String(64), nullable=True)
+    notes = Column(Text, nullable=True)
+    created_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
 
 
 # ---- Expenses & Payroll ----
@@ -253,6 +349,9 @@ class Expense(Base):
     category = Column(String(64), nullable=False)
     amount = Column(Float, nullable=False)
     description = Column(Text, nullable=True)
+    store_id = Column(String(64), ForeignKey("stores.id", ondelete="SET NULL"), nullable=True, index=True)
+    method = Column(String(16), default="cash", nullable=False)  # cash, bank
+    cash_account_id = Column(String(64), nullable=True)
     expense_date = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
     created_by = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)

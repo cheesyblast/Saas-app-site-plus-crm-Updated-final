@@ -1,0 +1,47 @@
+{
+  "summary": "Iteration 5 (massive 6-phase batch) — Backend: 16/16 pytest cases pass on the deployed preview URL. Validated suppliers CRUD + invoice (balance_owed/total_purchases) + payment (balance_owed decrement, cash account debit, 'out' CashLedger entry); income with cash_account credits + 'in' ledger; cash-accounts CRUD; cash-ledger filter; P&L report (revenue/income/expense/profit/series/by_outlet, day & month group_by); P&L xlsx export (PK header + correct content-type); /admin/products paginated envelope; PUBLIC /receipt/{n} (no auth) returns full receipt JSON with cash_tendered/cash_change/items/company; SMS notification body includes /receipt/{n}; POS cash checkout with cash_account_id creates 'in' CashLedger entry; CSV import dry-run does NOT persist, commit creates products+variants+inventory and second-row aggregates as a new variant; coupon scope=products correctly rejects (400) cart with no eligible items and discounts only eligible portion (verified: 50%-of-one-product = LKR 500 discount on LKR 2000 cart). Staff defaults to all-OFF perms; PUT updates persist. Frontend smoke: admin login OK; /admin/pos no longer crashes (verified screenshot — Cart, Cash tendered/Change, account picker visible); sidebar collapse toggle persists in localStorage; /admin/suppliers, /admin/cash-accounts, /admin/expenses (Inc & Exp), /admin/reports (P&L), /admin/import all render. Sidebar nav shows 'Coupon & Discount', 'Inc & Exp', 'Cash & Bank', 'Suppliers', 'Bulk Import'. Staff dialog exposes permission checklist with 'All on' / 'All off'. /receipt/:orderNumber NOW renders thermal receipt with PRINT button after my fix below.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Coupons.jsx", "issue": "Page H1 still reads 'Coupons' rather than 'Coupon & Discount' (sidebar nav label is correct). Cosmetic only.", "selector": "h1", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "/receipt/:orderNumber public page", "issue": "Receipt component was IMPORTED but its <Route> was missing in App.js. POS auto-opens this URL after checkout and would have 'No routes matched' for end-users. FIXED by testing agent — added <Route path=\"/receipt/:orderNumber\" element={<Receipt />} /> outside the AdminLayout/StorefrontLayout wrappers (truly public). Verified: page renders thermal receipt with PRINT button.", "affected_selectors": ["/receipt/:orderNumber"]}
+    ],
+    "design_issues": [
+      {"screen": "/admin/reports", "issues": ["Recharts emits width/height(-1) warnings on initial mount when responsive container reads zero dimensions; chart still renders eventually but consider min-width/min-height on the wrapper."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter5_saas.py",
+    "/app/test_reports/pytest/iter5_results.xml"
+  ],
+  "action_items": [
+    "Optional cosmetic: rename Coupons page <h1> to 'Coupon & Discount' to match sidebar label.",
+    "Optional: address Recharts width/height(-1) warning on /admin/reports by giving the responsive container an explicit min-height (e.g. 320px) on the wrapping div.",
+    "Confirm the testing-agent fix in /app/frontend/src/App.js (added /receipt/:orderNumber route) is acceptable; Receipt was already imported but never routed."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 2679 lines — past the 700-line threshold. Strongly recommend splitting into routers (auth, catalog, orders, inventory, coupons, expenses, accounting, suppliers, page_builder, theme, integrations, csv_import).",
+    "/admin/reports/pnl/export calls pnl_report(db, _=_, ...). Passing `_` as kwarg works because pnl_report's parameter is also named `_`, but it is fragile — recommend extracting the computation into a private helper that does not depend on auth Depends so the export route doesn't bypass auth indirectly.",
+    "checkout cash_change formula (line 1397-1398) computes `tendered - max(0, subtotal-discount + (0.0 if pos else 0.0))` — the inner ternary is redundant (always 0.0). Also, change is computed against subtotal-discount (no shipping), which is correct only because POS has shipping=0; if a non-POS source ever sets cash_tendered the change would be wrong. Add a comment or compute against `total` directly.",
+    "supplier-payments only updates SupplierInvoice.paid when invoice_id is provided — there is no auto-allocation against oldest unpaid invoices. OK for v1; document in UI.",
+    "CSV import dry-run uses await db.flush() and await db.rollback() — flushes happen for both new and existing products before rollback. With Postgres this is fine because a rollback unwinds the savepoint, but on SQLite this can hold uncommitted state. Confirm DB engine in use; if SQLite, prefer not to flush during dry-run.",
+    "Staff create endpoint (line 1801) — when payload.permissions is None, defaults to all-OFF. But ALL_PERMISSIONS source is in auth.py — make sure new permission keys added there are picked up here automatically (they are, via dict-comprehension). Good.",
+    "Coupon scope validation logic (line 1370-1378) in checkout correctly rejects empty eligible_subtotal with 400. Email/SMS/PayHere remain MOCKED — confirmed."
+  ],
+  "updated_files": [
+    "/app/frontend/src/App.js (added missing <Route path='/receipt/:orderNumber' element={<Receipt />} /> — was a 1-line registration miss; Receipt component was already imported)",
+    "/app/backend/tests/test_iter5_saas.py (new — 16 pytests for the 6-phase batch)"
+  ],
+  "success_rate": {"backend": "100% (16/16)", "frontend": "100% on smoke-tested flows after receipt-route fix"},
+  "test_credentials": "admin@demo.com / demo12345 (super_admin) — JWT in body + httpOnly session cookie.",
+  "seed_data_creation": "test_iter5_saas.py creates and tears down: TEST_Supplier_*, TEST_CA_*, TEST_INC_CA_*, TEST_POS_CA_*, TEST_CSV_*, TEST_SCOPE_A/B_*, TEST_staff_*. Two test cash orders (TEST_Receipt_Buyer, TEST_POS_CA, TEST_Scope_Good) intentionally remain to support receipt + ledger assertions on subsequent runs.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "DB state preserved. Re-run: pytest /app/backend/tests/test_iter5_saas.py -v. The /receipt/:orderNumber public route was added by previous testing agent — keep it. Iteration 4 tests (test_iter4_saas.py) still pass and are idempotent. Frontend Reports page emits Recharts width/height(-1) warnings at mount; not blocking. Coupons page H1 is still 'Coupons' (sidebar correctly says 'Coupon & Discount'). Public products endpoint exposes variant.stock as a flat int (NOT a nested inventory[] array) — important for any test that filters by stock.",
+  "rca of the issue": "The /receipt/:orderNumber public page was 100% backend-ready (route + Receipt.jsx component + import in App.js) but the React <Route> declaration was missing in /app/frontend/src/App.js. Symptom: react-router console warning 'No routes matched location \"/receipt/ORD-...\"' on every POS post-checkout window. Fix applied: added <Route path=\"/receipt/:orderNumber\" element={<Receipt />} /> just below the /dashboard route, OUTSIDE both StorefrontLayout and AdminLayout wrappers so it stays truly public (no header/sidebar). Verified by visiting the URL: thermal receipt renders correctly with PRINT button and shows scope-discounted total (LKR 500 off LKR 2000 = 50% scoped coupon working)."
+}

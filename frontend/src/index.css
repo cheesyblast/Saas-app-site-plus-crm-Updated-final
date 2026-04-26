@@ -6,7 +6,7 @@
 
 body {
     margin: 0;
-    font-family: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    font-family: var(--font-body, 'IBM Plex Sans'), system-ui, -apple-system, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background: #09090B;
@@ -14,7 +14,7 @@ body {
 }
 
 .font-heading {
-    font-family: 'Unbounded', 'IBM Plex Sans', sans-serif;
+    font-family: var(--font-heading, 'Unbounded'), 'IBM Plex Sans', sans-serif;
     letter-spacing: -0.02em;
 }
 
