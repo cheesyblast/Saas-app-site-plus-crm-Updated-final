@@ -2963,12 +2963,11 @@ async def export_customers_csv(db: AsyncSession = Depends(get_db), _: M.User = D
     buf = io.StringIO()
     w = _csv.writer(buf)
     w.writerow(["name", "email", "phone", "address", "district", "city",
-                "total_orders", "total_spent", "marketing_opt_in", "created_at"])
+                "total_orders", "total_spent", "created_at"])
     for c in rows:
         w.writerow([c.name or "", c.email or "", c.phone or "", c.address or "",
                     c.district or "", c.city or "",
                     c.total_orders or 0, c.total_spent or 0,
-                    "yes" if c.marketing_opt_in else "no",
                     c.created_at.isoformat() if c.created_at else ""])
     return FastResponse(content=buf.getvalue(), media_type="text/csv",
                         headers={"Content-Disposition": 'attachment; filename="customers.csv"'})
@@ -3003,3 +3002,4 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
