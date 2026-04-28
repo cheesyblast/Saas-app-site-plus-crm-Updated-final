@@ -71,6 +71,18 @@ COLUMN_MIGRATIONS = [
     ('orders', 'cash_change', 'DOUBLE PRECISION'),
     ('orders', 'card_last4', 'VARCHAR(8)'),
     ('orders', 'cash_account_id', 'VARCHAR(64)'),
+    ('company_settings', 'meta_title', 'VARCHAR(255)'),
+    ('company_settings', 'meta_description', 'TEXT'),
+    ('company_settings', 'meta_keywords', 'TEXT'),
+    ('company_settings', 'og_image_id', 'VARCHAR(64)'),
+    ('company_settings', 'google_analytics_id', 'VARCHAR(64)'),
+    ('company_settings', 'google_site_verification', 'VARCHAR(128)'),
+    ('company_settings', 'facebook_pixel_id', 'VARCHAR(64)'),
+    ('company_settings', 'instagram_url', 'VARCHAR(255)'),
+    ('company_settings', 'facebook_url', 'VARCHAR(255)'),
+    ('company_settings', 'tiktok_url', 'VARCHAR(255)'),
+    ('company_settings', 'twitter_url', 'VARCHAR(255)'),
+    ('company_settings', 'youtube_url', 'VARCHAR(255)'),
 ]
 
 
@@ -187,8 +199,21 @@ DEFAULT_PAYMENT_METHODS = [
     {"code": "payhere", "label": "PayHere (Card / Bank)", "scope": "online", "active": False, "sort_order": 10,
      "description": "Secure online payment via PayHere gateway.",
      "config": {"merchant_id": "", "merchant_secret": "", "sandbox": True}},
+    {"code": "koko", "label": "KOKO — Pay in 3 (Online)", "scope": "online", "active": False, "sort_order": 20,
+     "description": "Buy now, pay in 3 interest-free instalments via KOKO.",
+     "config": {"merchant_id": "", "api_key": "", "secret": "", "sandbox": True,
+                 "_setup_help": "Add your KOKO merchant credentials. Until live SDK is wired, orders mark as paid."}},
+    {"code": "mintpay", "label": "Mintpay — Buy Now Pay Later", "scope": "online", "active": False, "sort_order": 30,
+     "description": "Split your order into instalments with Mintpay.",
+     "config": {"merchant_id": "", "api_key": "", "secret": "", "sandbox": True,
+                 "_setup_help": "Add your Mintpay merchant credentials. Until live SDK is wired, orders mark as paid."}},
     {"code": "cash", "label": "Cash", "scope": "pos", "active": True, "sort_order": 0},
     {"code": "card_pos", "label": "Card (POS Terminal)", "scope": "pos", "active": True, "sort_order": 10},
+    {"code": "koko_pos", "label": "KOKO — Pay in 3 (POS)", "scope": "pos", "active": False, "sort_order": 20,
+     "description": "Customer pays via KOKO QR on the POS counter.",
+     "config": {"merchant_id": "", "api_key": "", "secret": "", "sandbox": True}},
+    {"code": "mintpay_pos", "label": "Mintpay (POS)", "scope": "pos", "active": False, "sort_order": 30,
+     "config": {"merchant_id": "", "api_key": "", "secret": "", "sandbox": True}},
 ]
 
 DEFAULT_SYSTEM_PAGES = [
@@ -467,15 +492,14 @@ def _company_dict(cs: M.CompanySettings):
         "currency": cs.currency,
         "logo_light_id": cs.logo_light_id, "logo_dark_id": cs.logo_dark_id,
         "favicon_id": cs.favicon_id, "setup_complete": cs.setup_complete,
+        "meta_title": cs.meta_title, "meta_description": cs.meta_description,
+        "meta_keywords": cs.meta_keywords, "og_image_id": cs.og_image_id,
+        "google_analytics_id": cs.google_analytics_id,
+        "google_site_verification": cs.google_site_verification,
+        "facebook_pixel_id": cs.facebook_pixel_id,
+        "instagram_url": cs.instagram_url, "facebook_url": cs.facebook_url,
+        "tiktok_url": cs.tiktok_url, "twitter_url": cs.twitter_url, "youtube_url": cs.youtube_url,
     }
-
-
-@api.get("/company")
-async def get_company(db: AsyncSession = Depends(get_db)):
-    cs = (await db.execute(select(M.CompanySettings).where(M.CompanySettings.id == "default"))).scalar_one_or_none()
-    if not cs:
-        return {"company_name": "My Brand", "currency": "LKR", "setup_complete": False}
-    return _company_dict(cs)
 
 
 class CompanyUpdate(BaseModel):
@@ -488,6 +512,26 @@ class CompanyUpdate(BaseModel):
     logo_light_id: Optional[str] = None
     logo_dark_id: Optional[str] = None
     favicon_id: Optional[str] = None
+    meta_title: Optional[str] = None
+    meta_description: Optional[str] = None
+    meta_keywords: Optional[str] = None
+    og_image_id: Optional[str] = None
+    google_analytics_id: Optional[str] = None
+    google_site_verification: Optional[str] = None
+    facebook_pixel_id: Optional[str] = None
+    instagram_url: Optional[str] = None
+    facebook_url: Optional[str] = None
+    tiktok_url: Optional[str] = None
+    twitter_url: Optional[str] = None
+    youtube_url: Optional[str] = None
+
+
+@api.get("/company")
+async def get_company(db: AsyncSession = Depends(get_db)):
+    cs = (await db.execute(select(M.CompanySettings).where(M.CompanySettings.id == "default"))).scalar_one_or_none()
+    if not cs:
+        return {"company_name": "My Brand", "currency": "LKR", "setup_complete": False}
+    return _company_dict(cs)
 
 
 @api.put("/admin/company")
@@ -1404,7 +1448,7 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
     # Resolve payment status by method.
     # Card / instant methods are auto-paid AND auto-completed (final state).
     # COD / pending gateways stay in pending until manually marked received.
-    instant_paid = {"cash", "card_pos", "card", "stripe"}
+    instant_paid = {"cash", "card_pos", "card", "stripe", "koko", "mintpay", "koko_pos", "mintpay_pos"}
     if payload.payment_method in instant_paid:
         payment_status = "paid"; order_status = "completed"
     else:
@@ -1542,16 +1586,49 @@ class OrderStatusIn(BaseModel):
 
 
 @api.put("/admin/orders/{oid}/status")
-async def update_order_status(oid: str, payload: OrderStatusIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+async def update_order_status(oid: str, payload: OrderStatusIn, db: AsyncSession = Depends(get_db), user: M.User = Depends(require_admin)):
     o = (await db.execute(select(M.Order).where(M.Order.id == oid))).scalar_one_or_none()
     if not o:
         raise HTTPException(404, "Not found")
     if o.status == "completed":
         raise HTTPException(400, "Completed orders are locked and cannot be changed.")
-    o.status = payload.status
+    new_status = payload.status
+    # Pre-paid orders (card / KOKO / Mintpay / stripe / etc.) auto-complete on Delivered
+    # and credit the destination BANK account if not already credited.
+    prepaid_methods = {"card", "card_pos", "stripe", "koko", "mintpay", "paid"}
+    if new_status == "delivered" and o.payment_status == "paid" and o.payment_method in prepaid_methods:
+        # If we already wrote to a cash ledger (e.g. POS card), don't double-credit. We mark only when no entry exists.
+        existing_ledger = (await db.execute(select(M.CashLedger).where(and_(
+            M.CashLedger.source_kind == "order", M.CashLedger.source_id == o.id
+        )))).scalars().first()
+        if not existing_ledger:
+            target = None
+            if o.cash_account_id:
+                target = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == o.cash_account_id))).scalar_one_or_none()
+            # Prefer BANK account on the order's store
+            if not target and o.store_id:
+                target = (await db.execute(select(M.CashAccount).where(and_(
+                    M.CashAccount.store_id == o.store_id, M.CashAccount.kind == "bank", M.CashAccount.active == True,
+                )))).scalars().first()
+            # Fallback to BANK on online store
+            if not target:
+                online = (await db.execute(select(M.Store).where(M.Store.is_online == True))).scalars().first()
+                if online:
+                    target = (await db.execute(select(M.CashAccount).where(and_(
+                        M.CashAccount.store_id == online.id, M.CashAccount.kind == "bank", M.CashAccount.active == True,
+                    )))).scalars().first()
+            if target:
+                target.balance += o.total
+                o.cash_account_id = target.id
+                db.add(M.CashLedger(cash_account_id=target.id, direction="in", amount=o.total,
+                                     source_kind="order", source_id=o.id,
+                                     notes=f"{o.payment_method.upper()} payout · {o.order_number}",
+                                     created_by=user.user_id))
+        new_status = "completed"
+    o.status = new_status
     if o.customer_email:
-        await _log_notification(db, "email", o.customer_email, f"Order {o.order_number} {payload.status}",
-                                 f"Your order {o.order_number} status: {payload.status}.", o.id)
+        await _log_notification(db, "email", o.customer_email, f"Order {o.order_number} {new_status}",
+                                 f"Your order {o.order_number} status: {new_status}.", o.id)
     await db.commit()
     return {"ok": True, "status": o.status}
 
@@ -1563,32 +1640,37 @@ async def mark_cash_received(oid: str, db: AsyncSession = Depends(get_db), user:
         raise HTTPException(404, "Not found")
     if o.status == "completed":
         raise HTTPException(400, "Order already completed.")
-    # Resolve cash account: prefer the order.cash_account_id (set at checkout), else auto-pick
-    # the first active CASH account bound to the order's store, else any cash account on the
-    # online store. Refuse to complete if no account is configured (per business rule).
+    # COD cash received → goes to BANK account of the store (delivery person banks the cash).
+    # Order of preference:
+    #   1) The cash_account_id already attached to the order (usually nothing for COD)
+    #   2) BANK account bound to the order's store
+    #   3) BANK account on the online store
+    #   4) CASH account on the online store (last-resort fallback if no bank account exists)
     target = None
     if o.cash_account_id:
         target = (await db.execute(select(M.CashAccount).where(M.CashAccount.id == o.cash_account_id))).scalar_one_or_none()
     if not target and o.store_id:
         target = (await db.execute(select(M.CashAccount).where(and_(
-            M.CashAccount.store_id == o.store_id, M.CashAccount.kind == "cash", M.CashAccount.active == True
+            M.CashAccount.store_id == o.store_id, M.CashAccount.kind == "bank", M.CashAccount.active == True
+        )))).scalars().first()
+    online = (await db.execute(select(M.Store).where(M.Store.is_online == True))).scalars().first()
+    if not target and online:
+        target = (await db.execute(select(M.CashAccount).where(and_(
+            M.CashAccount.store_id == online.id, M.CashAccount.kind == "bank", M.CashAccount.active == True
+        )))).scalars().first()
+    if not target and online:
+        target = (await db.execute(select(M.CashAccount).where(and_(
+            M.CashAccount.store_id == online.id, M.CashAccount.kind == "cash", M.CashAccount.active == True
         )))).scalars().first()
     if not target:
-        # fallback: first active cash account on the online store
-        online = (await db.execute(select(M.Store).where(M.Store.is_online == True))).scalars().first()
-        if online:
-            target = (await db.execute(select(M.CashAccount).where(and_(
-                M.CashAccount.store_id == online.id, M.CashAccount.kind == "cash", M.CashAccount.active == True
-            )))).scalars().first()
-    if not target:
-        raise HTTPException(400, "No cash account configured for this store. Add one in Cash & Bank first.")
+        raise HTTPException(400, "No active bank or cash account configured for the online store. Add one in Cash & Bank first.")
     o.payment_status = "paid"
     o.status = "completed"
     o.cash_account_id = target.id
     target.balance += o.total
     db.add(M.CashLedger(cash_account_id=target.id, direction="in", amount=o.total,
                          source_kind="order", source_id=o.id,
-                         notes=f"COD received · {o.order_number}", created_by=user.user_id))
+                         notes=f"COD banked · {o.order_number}", created_by=user.user_id))
     if o.customer_email:
         await _log_notification(db, "email", o.customer_email, f"Order {o.order_number} completed",
                                  f"Cash received. Order {o.order_number} is now complete. Thank you.", o.id)
@@ -2775,6 +2857,141 @@ async def products_csv_template():
     csv += 'Sample Tee,TS-001,,,,,,,L,White,#ffffff,8,,\n'
     return FastResponse(content=csv, media_type="text/csv",
                         headers={"Content-Disposition": 'attachment; filename="products_template.csv"'})
+
+
+# ========== DISCOUNTS (storefront promotions) ==========
+class DiscountIn(BaseModel):
+    name: str
+    description: Optional[str] = None
+    type: str = "percent"
+    value: float = 0.0
+    scope: str = "sitewide"
+    scope_product_ids: Optional[List[str]] = None
+    scope_category_ids: Optional[List[str]] = None
+    show_badge_on_products: bool = True
+    badge_label: Optional[str] = None
+    badge_color: str = "#FF3B30"
+    show_marquee: bool = True
+    marquee_size: str = "sm"
+    marquee_speed: str = "normal"
+    marquee_bg: str = "#FF3B30"
+    marquee_fg: str = "#FFFFFF"
+    starts_at: Optional[datetime] = None
+    ends_at: Optional[datetime] = None
+    active: bool = True
+
+
+def _discount_dict(d: M.Discount):
+    return {
+        "id": d.id, "name": d.name, "description": d.description,
+        "type": d.type, "value": d.value, "scope": d.scope,
+        "scope_product_ids": d.scope_product_ids or [],
+        "scope_category_ids": d.scope_category_ids or [],
+        "show_badge_on_products": d.show_badge_on_products,
+        "badge_label": d.badge_label, "badge_color": d.badge_color,
+        "show_marquee": d.show_marquee, "marquee_size": d.marquee_size,
+        "marquee_speed": d.marquee_speed, "marquee_bg": d.marquee_bg, "marquee_fg": d.marquee_fg,
+        "starts_at": d.starts_at.isoformat() if d.starts_at else None,
+        "ends_at": d.ends_at.isoformat() if d.ends_at else None,
+        "active": d.active,
+        "created_at": d.created_at.isoformat() if d.created_at else None,
+    }
+
+
+@api.get("/admin/discounts")
+async def list_discounts(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin),
+                          q: Optional[str] = None, page: int = 1, page_size: int = 50):
+    base = select(M.Discount)
+    if q:
+        base = base.where(or_(M.Discount.name.ilike(f"%{q}%"), M.Discount.description.ilike(f"%{q}%")))
+    total = (await db.execute(select(func.count()).select_from(base.subquery()))).scalar_one()
+    page_size = min(max(1, page_size), 100); page = max(1, page)
+    rows = (await db.execute(base.order_by(desc(M.Discount.created_at)).offset((page-1)*page_size).limit(page_size))).scalars().all()
+    return {"items": [_discount_dict(d) for d in rows], "total": total, "page": page, "page_size": page_size}
+
+
+@api.post("/admin/discounts")
+async def create_discount(payload: DiscountIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    d = M.Discount(**payload.model_dump())
+    db.add(d); await db.commit(); await db.refresh(d)
+    return _discount_dict(d)
+
+
+@api.put("/admin/discounts/{did}")
+async def update_discount(did: str, payload: DiscountIn, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    d = (await db.execute(select(M.Discount).where(M.Discount.id == did))).scalar_one_or_none()
+    if not d:
+        raise HTTPException(404, "Not found")
+    for k, v in payload.model_dump().items():
+        setattr(d, k, v)
+    d.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return _discount_dict(d)
+
+
+@api.delete("/admin/discounts/{did}")
+async def delete_discount(did: str, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    d = (await db.execute(select(M.Discount).where(M.Discount.id == did))).scalar_one_or_none()
+    if not d:
+        raise HTTPException(404, "Not found")
+    await db.delete(d); await db.commit()
+    return {"ok": True}
+
+
+@api.get("/discounts/active")
+async def public_active_discounts(db: AsyncSession = Depends(get_db)):
+    """Public list of currently-active discounts for marquee + product badges."""
+    now = datetime.now(timezone.utc)
+    rows = (await db.execute(select(M.Discount).where(M.Discount.active == True))).scalars().all()
+    out = []
+    for d in rows:
+        if d.starts_at:
+            sa = d.starts_at if d.starts_at.tzinfo else d.starts_at.replace(tzinfo=timezone.utc)
+            if sa > now: continue
+        if d.ends_at:
+            ea = d.ends_at if d.ends_at.tzinfo else d.ends_at.replace(tzinfo=timezone.utc)
+            if ea < now: continue
+        out.append(_discount_dict(d))
+    return out
+
+
+# ========== CUSTOMER CSV / EXCEL EXPORT ==========
+@api.get("/admin/customers/export.csv")
+async def export_customers_csv(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    import io, csv as _csv
+    rows = (await db.execute(select(M.Customer).order_by(desc(M.Customer.created_at)))).scalars().all()
+    buf = io.StringIO()
+    w = _csv.writer(buf)
+    w.writerow(["name", "email", "phone", "address", "district", "city",
+                "total_orders", "total_spent", "marketing_opt_in", "created_at"])
+    for c in rows:
+        w.writerow([c.name or "", c.email or "", c.phone or "", c.address or "",
+                    c.district or "", c.city or "",
+                    c.total_orders or 0, c.total_spent or 0,
+                    "yes" if c.marketing_opt_in else "no",
+                    c.created_at.isoformat() if c.created_at else ""])
+    return FastResponse(content=buf.getvalue(), media_type="text/csv",
+                        headers={"Content-Disposition": 'attachment; filename="customers.csv"'})
+
+
+@api.get("/admin/customers/export.xlsx")
+async def export_customers_xlsx(db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    import io
+    from openpyxl import Workbook
+    rows = (await db.execute(select(M.Customer).order_by(desc(M.Customer.created_at)))).scalars().all()
+    wb = Workbook(); ws = wb.active; ws.title = "Customers"
+    ws.append(["Name", "Email", "Phone", "Address", "District", "City",
+               "Orders", "Total Spent", "Marketing Opt-in", "Joined"])
+    for c in rows:
+        ws.append([c.name or "", c.email or "", c.phone or "", c.address or "",
+                   c.district or "", c.city or "",
+                   c.total_orders or 0, c.total_spent or 0,
+                   "yes" if c.marketing_opt_in else "no",
+                   c.created_at.isoformat() if c.created_at else ""])
+    buf = io.BytesIO(); wb.save(buf); buf.seek(0)
+    return FastResponse(content=buf.getvalue(),
+                        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        headers={"Content-Disposition": 'attachment; filename="customers.xlsx"'})
 
 
 app.include_router(api)

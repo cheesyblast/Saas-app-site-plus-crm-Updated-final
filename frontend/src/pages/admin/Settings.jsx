@@ -10,9 +10,12 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Trash2, Plus, Upload, Save, MapPin, CreditCard, Mail, MessageSquare, Building2, KeyRound } from "lucide-react";
+import { Trash2, Plus, Upload, Save, Mail, MessageSquare, Building2, KeyRound, Search, Bell, UserCog, DollarSign } from "lucide-react";
 import { toast } from "sonner";
 import { formatApiErrorDetail } from "@/lib/errors";
+import Notifications from "./Notifications";
+import Staff from "./Staff";
+import Payroll from "./Payroll";
 
 const CURRENCIES = ["LKR", "USD", "EUR", "GBP", "INR", "AUD"];
 
@@ -33,25 +36,110 @@ export default function Settings() {
     <div className="text-white">
       <div className="mb-8">
         <h1 className="font-heading text-3xl sm:text-4xl font-black uppercase tracking-tighter">Settings</h1>
-        <p className="text-zinc-500 text-sm mt-2">Manage company, admins, integrations, shipping & payments.</p>
+        <p className="text-zinc-500 text-sm mt-2">Company, SEO, integrations, staff, payroll &amp; notifications.</p>
       </div>
       <Tabs defaultValue="company" className="w-full">
         <TabsList className="bg-zinc-900 border border-zinc-800 rounded-none p-0 flex w-full overflow-x-auto">
-          <TabsTrigger value="company" data-testid="settings-tab-company" className="flex-1 rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Building2 className="h-3 w-3 mr-2"/>Company</TabsTrigger>
-          <TabsTrigger value="account" data-testid="settings-tab-account" className="flex-1 rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><KeyRound className="h-3 w-3 mr-2"/>My Account</TabsTrigger>
-          {isOwner && <TabsTrigger value="email" data-testid="settings-tab-email" className="flex-1 rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Mail className="h-3 w-3 mr-2"/>Email</TabsTrigger>}
-          {isOwner && <TabsTrigger value="sms" data-testid="settings-tab-sms" className="flex-1 rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><MessageSquare className="h-3 w-3 mr-2"/>SMS</TabsTrigger>}
-          <TabsTrigger value="shipping" data-testid="settings-tab-shipping" className="flex-1 rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><MapPin className="h-3 w-3 mr-2"/>Shipping</TabsTrigger>
-          <TabsTrigger value="payments" data-testid="settings-tab-payments" className="flex-1 rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><CreditCard className="h-3 w-3 mr-2"/>Payments</TabsTrigger>
+          <TabsTrigger value="company" data-testid="settings-tab-company" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Building2 className="h-3 w-3 mr-2"/>Company</TabsTrigger>
+          <TabsTrigger value="seo" data-testid="settings-tab-seo" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Search className="h-3 w-3 mr-2"/>SEO &amp; Analytics</TabsTrigger>
+          <TabsTrigger value="account" data-testid="settings-tab-account" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><KeyRound className="h-3 w-3 mr-2"/>My Account</TabsTrigger>
+          {isOwner && <TabsTrigger value="email" data-testid="settings-tab-email" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Mail className="h-3 w-3 mr-2"/>Email</TabsTrigger>}
+          {isOwner && <TabsTrigger value="sms" data-testid="settings-tab-sms" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><MessageSquare className="h-3 w-3 mr-2"/>SMS</TabsTrigger>}
+          <TabsTrigger value="notifications" data-testid="settings-tab-notifications" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Bell className="h-3 w-3 mr-2"/>Notifications</TabsTrigger>
+          {isOwner && <TabsTrigger value="staff" data-testid="settings-tab-staff" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><UserCog className="h-3 w-3 mr-2"/>Staff</TabsTrigger>}
+          <TabsTrigger value="payroll" data-testid="settings-tab-payroll" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><DollarSign className="h-3 w-3 mr-2"/>Payroll</TabsTrigger>
         </TabsList>
 
         <TabsContent value="company" className="mt-6"><CompanyTab company={company} refresh={refresh}/></TabsContent>
+        <TabsContent value="seo" className="mt-6"><SeoTab company={company} refresh={refresh}/></TabsContent>
         <TabsContent value="account" className="mt-6"><AccountTab user={user}/></TabsContent>
         {isOwner && <TabsContent value="email" className="mt-6"><IntegrationTab kind="email"/></TabsContent>}
         {isOwner && <TabsContent value="sms" className="mt-6"><IntegrationTab kind="sms"/></TabsContent>}
-        <TabsContent value="shipping" className="mt-6"><ShippingTab/></TabsContent>
-        <TabsContent value="payments" className="mt-6"><PaymentsTab/></TabsContent>
+        <TabsContent value="notifications" className="mt-6"><Notifications/></TabsContent>
+        {isOwner && <TabsContent value="staff" className="mt-6"><Staff/></TabsContent>}
+        <TabsContent value="payroll" className="mt-6"><Payroll/></TabsContent>
       </Tabs>
+    </div>
+  );
+}
+
+function SeoTab({ company, refresh }) {
+  const [form, setForm] = useState(company || {});
+  useEffect(() => { setForm(company || {}); }, [company]);
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
+  const [busy, setBusy] = useState(false);
+
+  const uploadOg = async (file) => {
+    if (file.size > 1024 * 1024) return toast.error("Max 1MB");
+    const data_base64 = await fileToBase64(file);
+    const { data } = await api.post("/admin/media", { data_base64, mime_type: file.type, filename: file.name });
+    set("og_image_id", data.id);
+    toast.success("Cover image uploaded");
+  };
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put("/admin/company", form);
+      await refresh();
+      toast.success("SEO settings saved — refresh storefront to see updated meta tags.");
+    } catch { toast.error("Save failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="border border-zinc-800 bg-zinc-950 p-6 max-w-3xl space-y-8">
+      <div>
+        <h2 className="font-heading uppercase tracking-widest text-sm mb-1">Search Engine Optimization</h2>
+        <p className="text-xs text-zinc-500">These tags appear in your storefront's &lt;head&gt; so Google &amp; social platforms can index and preview your shop.</p>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-4">
+        <Field label="Browser tab title (Meta title)" hint="Recommended: 50–60 characters."><Input data-testid="seo-meta-title" value={form.meta_title || ""} onChange={(e) => set("meta_title", e.target.value)} placeholder={`${form.company_name || "My Brand"} — Online Store`} className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+        <Field label="Meta keywords (optional)"><Input value={form.meta_keywords || ""} onChange={(e) => set("meta_keywords", e.target.value)} placeholder="streetwear, sri lanka, cotton tees" className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+        <div className="sm:col-span-2"><Field label="Meta description" hint="Recommended: 140–160 characters. This is what Google shows in search results."><Textarea data-testid="seo-meta-description" value={form.meta_description || ""} onChange={(e) => set("meta_description", e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none" rows={3}/></Field></div>
+      </div>
+
+      <div>
+        <h3 className="font-heading uppercase tracking-widest text-xs text-zinc-400 mb-3">Social preview</h3>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <div>
+            <Label className="text-xs uppercase tracking-widest text-zinc-400 mb-2 block">Open Graph image (1200×630 recommended)</Label>
+            <div className="border border-zinc-800 p-4 bg-zinc-900 flex items-center justify-center min-h-[120px] relative">
+              {form.og_image_id ? (
+                <>
+                  <img src={logoUrl(form.og_image_id)} alt="OG" className="max-h-32 max-w-full object-contain"/>
+                  <button type="button" onClick={() => set("og_image_id", null)} className="absolute top-2 right-2 bg-black/70 text-white p-1.5 hover:bg-red-500"><Trash2 className="h-3 w-3"/></button>
+                </>
+              ) : <span className="text-zinc-500 text-xs uppercase tracking-widest">No cover image</span>}
+            </div>
+            <label className="mt-2 inline-flex items-center gap-2 text-xs uppercase tracking-widest text-zinc-300 hover:text-white cursor-pointer border border-zinc-800 px-3 py-2"><Upload className="h-3 w-3"/>Upload<input type="file" accept="image/*" hidden onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadOg(f); }}/></label>
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="font-heading uppercase tracking-widest text-xs text-zinc-400 mb-3">Analytics &amp; verification</h3>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Google Analytics ID (GA4)" hint='Format: "G-XXXXXXXXXX". Loads gtag.js on every page.'><Input data-testid="seo-ga-id" value={form.google_analytics_id || ""} onChange={(e) => set("google_analytics_id", e.target.value)} placeholder="G-XXXXXXXXXX" className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+          <Field label="Google Site Verification" hint="Paste the content of the meta tag from Search Console."><Input value={form.google_site_verification || ""} onChange={(e) => set("google_site_verification", e.target.value)} placeholder="abc123..." className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+          <Field label="Facebook Pixel ID (optional)"><Input value={form.facebook_pixel_id || ""} onChange={(e) => set("facebook_pixel_id", e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+        </div>
+      </div>
+
+      <div>
+        <h3 className="font-heading uppercase tracking-widest text-xs text-zinc-400 mb-3">Social links (footer)</h3>
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Field label="Instagram URL"><Input value={form.instagram_url || ""} onChange={(e) => set("instagram_url", e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+          <Field label="Facebook URL"><Input value={form.facebook_url || ""} onChange={(e) => set("facebook_url", e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+          <Field label="TikTok URL"><Input value={form.tiktok_url || ""} onChange={(e) => set("tiktok_url", e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+          <Field label="X / Twitter URL"><Input value={form.twitter_url || ""} onChange={(e) => set("twitter_url", e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+          <Field label="YouTube URL"><Input value={form.youtube_url || ""} onChange={(e) => set("youtube_url", e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none"/></Field>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Button data-testid="seo-save-btn" onClick={save} disabled={busy} className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none font-heading uppercase tracking-widest gap-2"><Save className="h-3 w-3"/>{busy ? "Saving..." : "Save SEO Settings"}</Button>
+      </div>
     </div>
   );
 }
@@ -111,11 +199,12 @@ function CompanyTab({ company, refresh }) {
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, children, hint }) {
   return (
     <div>
       <Label className="text-xs uppercase tracking-widest text-zinc-400 mb-1 block">{label}</Label>
       {children}
+      {hint && <p className="text-[10px] text-zinc-500 mt-1">{hint}</p>}
     </div>
   );
 }

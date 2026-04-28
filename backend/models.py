@@ -70,7 +70,46 @@ class CompanySettings(Base):
     logo_light_id = Column(String(64), nullable=True)  # for dark backgrounds
     logo_dark_id = Column(String(64), nullable=True)   # for light backgrounds
     favicon_id = Column(String(64), nullable=True)
+    # SEO / marketing
+    meta_title = Column(String(255), nullable=True)
+    meta_description = Column(Text, nullable=True)
+    meta_keywords = Column(Text, nullable=True)
+    og_image_id = Column(String(64), nullable=True)
+    google_analytics_id = Column(String(64), nullable=True)  # G-XXXXXXXXXX
+    google_site_verification = Column(String(128), nullable=True)
+    facebook_pixel_id = Column(String(64), nullable=True)
+    instagram_url = Column(String(255), nullable=True)
+    facebook_url = Column(String(255), nullable=True)
+    tiktok_url = Column(String(255), nullable=True)
+    twitter_url = Column(String(255), nullable=True)
+    youtube_url = Column(String(255), nullable=True)
     setup_complete = Column(Boolean, default=False, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class Discount(Base):
+    """Storefront-visible promotion. Optionally renders a top marquee + product badges."""
+    __tablename__ = "discounts"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    name = Column(String(128), nullable=False)
+    description = Column(Text, nullable=True)
+    type = Column(String(16), default="percent", nullable=False)  # percent | fixed
+    value = Column(Float, default=0.0, nullable=False)
+    scope = Column(String(16), default="sitewide", nullable=False)  # sitewide | products | categories
+    scope_product_ids = Column(JSON, nullable=True)
+    scope_category_ids = Column(JSON, nullable=True)
+    show_badge_on_products = Column(Boolean, default=True, nullable=False)
+    badge_label = Column(String(32), nullable=True)
+    badge_color = Column(String(16), default="#FF3B30", nullable=False)
+    show_marquee = Column(Boolean, default=True, nullable=False)
+    marquee_size = Column(String(8), default="sm", nullable=False)   # xs | sm | md
+    marquee_speed = Column(String(8), default="normal", nullable=False)
+    marquee_bg = Column(String(16), default="#FF3B30", nullable=False)
+    marquee_fg = Column(String(16), default="#FFFFFF", nullable=False)
+    starts_at = Column(DateTime(timezone=True), nullable=True)
+    ends_at = Column(DateTime(timezone=True), nullable=True)
+    active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 

@@ -30,14 +30,24 @@ export default function Orders() {
   useEffect(() => { setPage(1); }, [status, search]);
 
   const setOrderStatus = async (id, s) => {
-    try { await api.put(`/admin/orders/${id}/status`, { status: s }); toast.success(`Marked ${s}`); load(); }
-    catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
+    try {
+      const { data } = await api.put(`/admin/orders/${id}/status`, { status: s });
+      if (data.status === "completed") {
+        toast.success(`Order completed · payment booked to bank`, { description: "Cash ledger updated automatically." });
+      } else {
+        toast.success(`Marked ${s}`);
+      }
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
   };
 
   const cashReceived = async (id, num) => {
     if (!window.confirm(`Mark order ${num} as paid (cash received) and complete it? This cannot be undone.`)) return;
-    try { await api.post(`/admin/orders/${id}/cash-received`); toast.success("Marked complete · revenue updated"); load(); }
-    catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
+    try {
+      const { data } = await api.post(`/admin/orders/${id}/cash-received`);
+      toast.success(`Banked to "${data.credited_account_name}" · order completed`);
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Failed"); }
   };
 
   return (
@@ -82,7 +92,7 @@ export default function Orders() {
                   <td className="p-3">
                     {completed ? (
                       <span data-testid={`order-completed-${o.order_number}`} className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-widest px-3 py-1.5 bg-green-600/15 text-green-400 border border-green-600/40">
-                        <BadgeCheck className="h-3 w-3"/>Completed<Lock className="h-2.5 w-2.5 ml-1 opacity-70"/>
+                        <BadgeCheck className="h-3 w-3"/>Completed{o.cash_account_id && o.payment_method !== "cod" ? <span className="text-[9px] opacity-80 ml-1">· Banked</span> : null}<Lock className="h-2.5 w-2.5 ml-1 opacity-70"/>
                       </span>
                     ) : (
                       <Select value={o.status} onValueChange={(v) => setOrderStatus(o.id, v)}>

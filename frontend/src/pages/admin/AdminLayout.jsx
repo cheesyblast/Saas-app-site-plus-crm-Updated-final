@@ -5,9 +5,9 @@ import { useAuth } from "@/lib/auth";
 import { useCompany, logoUrl } from "@/lib/company";
 import {
   LayoutDashboard, Package, Tag, Warehouse, ShoppingCart, Users, ScanLine,
-  Store as StoreIcon, Ticket, Wallet, UserCog, BarChart3, Megaphone,
-  Bell, LogOut, ExternalLink, Layout, Settings as SettingsIcon,
-  Truck, PiggyBank, FileUp, ChevronLeft, ChevronRight, ChevronDown, DollarSign
+  Store as StoreIcon, Ticket, Wallet, BarChart3, Megaphone,
+  LogOut, ExternalLink, Layout, Settings as SettingsIcon,
+  Truck, PiggyBank, FileUp, ChevronLeft, ChevronRight, ChevronDown, CreditCard
 } from "lucide-react";
 
 // Item shapes:
@@ -31,6 +31,7 @@ const navTree = [
   { to: "/admin/pos", label: "POS", icon: ScanLine, perm: "pos" },
   { to: "/admin/stores", label: "Stores", icon: StoreIcon, perm: "settings" },
   { to: "/admin/coupons", label: "Coupon & Discount", icon: Ticket, perm: "products" },
+  { to: "/admin/payments-shipping", label: "Payments & Shipping", icon: CreditCard, perm: "settings" },
   {
     to: "/admin/expenses", label: "Inc & Exp", icon: Wallet, perm: "accounting",
     children: [
@@ -38,14 +39,7 @@ const navTree = [
       { to: "/admin/reports", label: "Reports", icon: BarChart3, perm: "reports" },
     ],
   },
-  {
-    to: "/admin/staff", label: "Staff", icon: UserCog, roles: ["super_admin"],
-    children: [
-      { to: "/admin/payroll", label: "Payroll", icon: DollarSign, perm: "accounting" },
-    ],
-  },
   { to: "/admin/marketing", label: "Marketing", icon: Megaphone, perm: "marketing" },
-  { to: "/admin/notifications", label: "Notifications", icon: Bell, perm: "settings" },
   { to: "/admin/settings", label: "Settings", icon: SettingsIcon, perm: "settings" },
 ];
 

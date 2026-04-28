@@ -30,7 +30,7 @@ import AdminOrders from "@/pages/admin/Orders";
 import AdminCustomers from "@/pages/admin/Customers";
 import AdminPOS from "@/pages/admin/POS";
 import AdminStores from "@/pages/admin/Stores";
-import AdminCoupons from "@/pages/admin/Coupons";
+import AdminCoupons from "@/pages/admin/CouponsAndDiscounts";
 import AdminExpenses from "@/pages/admin/Expenses";
 import AdminPayroll from "@/pages/admin/Payroll";
 import AdminStaff from "@/pages/admin/Staff";
@@ -43,6 +43,7 @@ import AdminSuppliers from "@/pages/admin/Suppliers";
 import AdminIncExp from "@/pages/admin/IncomeExpense";
 import AdminCashAccounts from "@/pages/admin/CashAccounts";
 import AdminCsvImport from "@/pages/admin/CsvImport";
+import AdminPaymentsShipping from "@/pages/admin/PaymentsShipping";
 import Receipt from "@/pages/storefront/Receipt";
 import Dashboard_Redirect from "@/pages/DashboardRouter";
 
@@ -102,6 +103,7 @@ function AppRouter() {
           <Route path="/admin/suppliers" element={<AdminSuppliers />} />
           <Route path="/admin/cash-accounts" element={<AdminCashAccounts />} />
           <Route path="/admin/import" element={<AdminCsvImport />} />
+          <Route path="/admin/payments-shipping" element={<AdminPaymentsShipping />} />
           <Route path="/admin/payroll" element={<AdminPayroll />} />
           <Route path="/admin/staff" element={<AdminStaff />} />
           <Route path="/admin/reports" element={<AdminReports />} />

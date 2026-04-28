@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Pencil, Search } from "lucide-react";
+import { Pencil, Search, Download } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Customers() {
@@ -25,13 +25,31 @@ export default function Customers() {
     } catch { toast.error("Failed"); }
   };
 
+  const downloadExport = async (format) => {
+    try {
+      const url = `/admin/customers/export.${format}`;
+      const res = await api.get(url, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: res.headers["content-type"] });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `customers.${format}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+      toast.success(`Downloaded ${rows.length} customers`);
+    } catch { toast.error("Export failed"); }
+  };
+
   return (
     <div className="space-y-6 text-white" data-testid="admin-customers">
       <div className="flex items-center justify-between flex-wrap gap-4">
         <h1 className="font-heading text-3xl sm:text-4xl font-black uppercase tracking-tighter">Customers</h1>
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500"/>
-          <Input data-testid="customers-search" placeholder="Search by name, phone, email or order #..." value={search} onChange={(e)=>setSearch(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none pl-9"/>
+        <div className="flex items-center gap-3 flex-wrap">
+          <Button onClick={() => downloadExport("csv")} data-testid="customers-export-csv" className="bg-zinc-900 border border-zinc-700 hover:border-white rounded-none uppercase tracking-widest text-xs h-9"><Download className="h-3 w-3 mr-2"/>CSV</Button>
+          <Button onClick={() => downloadExport("xlsx")} data-testid="customers-export-xlsx" className="bg-zinc-900 border border-zinc-700 hover:border-white rounded-none uppercase tracking-widest text-xs h-9"><Download className="h-3 w-3 mr-2"/>Excel</Button>
+          <div className="relative w-full sm:w-80">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500"/>
+            <Input data-testid="customers-search" placeholder="Search by name, phone, email or order #..." value={search} onChange={(e)=>setSearch(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none pl-9"/>
+          </div>
         </div>
       </div>
       <div className="border border-zinc-900 overflow-x-auto">
