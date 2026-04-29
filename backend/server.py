@@ -1380,7 +1380,8 @@ async def _build_order_response(o: M.Order, db: AsyncSession):
         "shipping": o.shipping, "tax": o.tax, "total": o.total,
         "cash_tendered": o.cash_tendered, "cash_change": o.cash_change, "card_last4": o.card_last4,
         "customer_name": o.customer_name, "customer_email": o.customer_email,
-        "customer_phone": o.customer_phone, "shipping_address": o.shipping_address,
+        "customer_phone": o.customer_phone, "customer_id": o.customer_id,
+        "shipping_address": o.shipping_address,
         "shipping_district": o.shipping_district, "shipping_city": o.shipping_city,
         "store_id": o.store_id,
         "source": o.source, "notes": o.notes, "created_at": o.created_at.isoformat(),
@@ -1422,14 +1423,20 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
     if payload.customer_phone:
         payload.customer_phone = normalize_phone_lk(payload.customer_phone)
     customer = None
-    if user:
+    # Only auto-attach to the logged-in user's existing Customer record when
+    # the caller IS that customer. POS / admin staff make sales for OTHER
+    # buyers, so we must not reuse the cashier's own customer record.
+    if user and user.role == "customer":
         customer = (await db.execute(select(M.Customer).where(M.Customer.user_id == user.user_id))).scalar_one_or_none()
     if not customer and payload.customer_phone:
         customer = (await db.execute(select(M.Customer).where(M.Customer.phone == payload.customer_phone))).scalar_one_or_none()
     if not customer and payload.customer_email:
         customer = (await db.execute(select(M.Customer).where(M.Customer.email == payload.customer_email))).scalar_one_or_none()
     if not customer:
-        customer = M.Customer(user_id=user.user_id if user else None,
+        # POS customers don't get linked to the staff user_id — only logged-in
+        # customer-role checkouts associate to a User account.
+        link_user_id = user.user_id if (user and user.role == "customer") else None
+        customer = M.Customer(user_id=link_user_id,
                               name=payload.customer_name or "Walk-in",
                               email=payload.customer_email,
                               phone=payload.customer_phone, address=payload.shipping_address,
@@ -1566,8 +1573,10 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
 
     order = M.Order(
         order_number=new_order_number(), customer_id=customer.id,
-        customer_name=payload.customer_name, customer_email=payload.customer_email,
-        customer_phone=payload.customer_phone, shipping_address=payload.shipping_address,
+        customer_name=(payload.customer_name or customer.name or "Walk-in"),
+        customer_email=(payload.customer_email or customer.email),
+        customer_phone=(payload.customer_phone or customer.phone),
+        shipping_address=payload.shipping_address,
         shipping_district=payload.shipping_district, shipping_city=payload.shipping_city,
         status=order_status, payment_method=payload.payment_method, payment_status=payment_status,
         subtotal=subtotal, discount=discount, coupon_code=coupon.code if coupon else None,
@@ -1771,9 +1780,15 @@ async def list_customers(db: AsyncSession = Depends(get_db), _: M.User = Depends
         if order_match and order_match.customer_id:
             query = query.where(M.Customer.id == order_match.customer_id)
         else:
+            # Phones are stored normalised in +94 E.164 form, so a cashier
+            # typing "0771234567" must also match "+94771234567".
+            normalised_phone = normalize_phone_lk(q)
+            phone_clauses = [M.Customer.phone.ilike(f"%{q}%")]
+            if normalised_phone and normalised_phone != q:
+                phone_clauses.append(M.Customer.phone.ilike(f"%{normalised_phone}%"))
             query = query.where(or_(
                 M.Customer.name.ilike(f"%{q}%"),
-                M.Customer.phone.ilike(f"%{q}%"),
+                *phone_clauses,
                 M.Customer.email.ilike(f"%{q}%"),
             ))
     rows = (await db.execute(query.limit(limit))).scalars().all()

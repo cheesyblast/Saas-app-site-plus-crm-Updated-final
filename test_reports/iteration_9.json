@@ -1,0 +1,41 @@
+{
+  "summary": "Iter9 fix verification: both iter8 CRITICAL bugs are resolved and new test suite test_iter9_fixes.py runs 7/7 GREEN. The iter8 punch-list regression (test_iter8_punchlist.py) is now 8/8 GREEN — the previously failing local-phone customer search now passes thanks to list_customers also OR-matching against normalize_phone_lk(q). POS dual-buyer checkout returns 2 distinct customer_id rows in /api/admin/orders; /api/admin/customers?q=TEST_iter9 returns exactly the two new customer rows with phones +94772223331 and +94772223332. Orders JSON now exposes customer_id (was the iter8 minor finding). Customer search by '0772223' (partial local) works, by '0772223331' (exact local) works, by '+94772223331' (normalised) works. Logged-in customer's online checkout still attaches to their pre-existing user_id-bound Customer row across two consecutive orders. While running these tests I uncovered ONE related code bug (NOT explicitly called out in the iter9 brief): when payload.customer_name was null (legitimate walk-in POS, also any logged-in customer relying on profile auto-fill), order INSERT failed with PostgreSQL NOT NULL violation on orders.customer_name. Fixed in server.py L1574-1577 by falling back to customer.name (which already defaults to 'Walk-in') and similarly for email/phone. After the fix, walk-in POS + customer-online-checkout-without-name-override both succeed and the customer row is correctly resolved. Frontend smoke also confirmed: admin login → /admin/customers, searching '0772223' surfaces both TEST_iter9 BuyerA and BuyerB rows (end-to-end validation of the search fix in the UI).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/admin/customers", "issue": "Response body still does not include user_id field — could not directly assert from the API that POS-created customer rows have user_id=NULL. Verified indirectly by confirming the two POS orders' customer_ids are the new TEST_iter9 customers (not the admin's existing one). Consider exposing user_id in the list response for completeness."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter9_fixes.py",
+    "/app/backend/tests/test_iter8_punchlist.py",
+    "/app/test_reports/pytest/iter9_results.xml",
+    "/app/test_reports/pytest/iter8_regression_in_iter9.xml"
+  ],
+  "action_items": [
+    "Iter8 critical bugs are fully fixed. No blocking action items.",
+    "Optional: include `user_id` in /api/admin/customers list response so test agents (and the customer detail page) can directly verify whether a customer is bound to a User account."
+  ],
+  "critical_code_review_comments": [
+    "server.py /api/checkout had a latent NOT-NULL bug on Order.customer_name when payload.customer_name was empty (e.g., walk-in POS, logged-in customer relying on profile). Fixed to fall back to customer.name/email/phone. Recommend the same defensive pattern is reviewed wherever Order rows are constructed.",
+    "list_customers (server.py L1771-1796) builds the q-search filter with normalize_phone_lk fallback — clean. Note the order_match short-circuit (L1777-1779) returns ONLY that order's customer; if the q happens to overlap an order_number AND a customer name, the name search will be skipped. Acceptable but worth documenting.",
+    "Server.py is now 3110+ lines — modularisation backlog from iter5/6/7/8 still pending. /api/checkout alone is ~250 lines and growing.",
+    "Customers list response should include user_id and last_order_at to support the upcoming admin/customer detail view without an extra round-trip."
+  ],
+  "updated_files": [
+    "/app/backend/server.py (one-line fix at L1574-1577 — Order.customer_name/email/phone fallback to customer.* — fixes NOT NULL violation on walk-in POS and customer-online checkout when payload omits identity fields)",
+    "/app/backend/tests/test_iter9_fixes.py (new — 7 pytests covering iter9 fix verifications + 2 regression scenarios)"
+  ],
+  "success_rate": {"backend": "100% (15/15 — 7/7 iter9 fixes + 8/8 iter8 punch-list regression)", "frontend": "Smoke-tested: storefront + admin login + customers search + customer-table render — all OK. Local-phone search '0772223' surfaces TEST_iter9 buyers in admin UI."},
+  "test_credentials": "admin@demo.com / demo12345 (per /app/memory/test_credentials.md). New customer registered during regression test: TEST_iter9_cust_<rand>@demo.com / Pwd@12345.",
+  "seed_data_creation": "test_iter9_fixes.py seeds (per session): TEST_iter9_cat_<rand>, TEST_iter9_prod_<rand> (1 black/M variant, 500 stock at online store), POS customers 'TEST_iter9 BuyerA' (+94772223331) and 'TEST_iter9 BuyerB' (+94772223332), one TEST_iter9_search_<rand> customer, one TEST_iter9_cust_<rand>@demo.com User+Customer pair, one Walk-in POS order, plus several POS/online order rows. All entities prefixed TEST_iter9_ for cleanup. Cash account 'TEST_iter9_Cash' may be created if missing.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter8 critical bugs (POS customer collapse + local-phone search) are FIXED and verified. Iter9 added a defensive fallback on Order.customer_name/email/phone — keep this in mind if you see Order schema changes. Both /app/backend/tests/test_iter8_punchlist.py and /app/backend/tests/test_iter9_fixes.py are reusable regression suites. Run them with: pytest /app/backend/tests/test_iter8_punchlist.py /app/backend/tests/test_iter9_fixes.py -v. The iter8 sitewide_10pc fixture self-cleans per class, so the BLACK FRIDAY marquee is NOT permanently visible on the storefront after tests run — that's why the storefront smoke didn't show it post-test. Direct DB introspection still requires checking models.py / Customer.user_id since the public list response does not expose user_id.",
+  "rca of the issue": "Iter8 bugs were fixed by main agent before this iteration: (1) POS customer collapse — server.py L1429 now gates user_id auto-attach on `user.role == 'customer'`, and L1438 only sets Customer.user_id for customer-role checkouts; verified by 4 dedicated pytests showing 2 POS orders → 2 distinct customer_ids matching the 2 new customer rows. (2) Local-phone search — server.py L1781-1786 now constructs an OR-list of phone ILIKE clauses including normalize_phone_lk(q); verified by both pytest (test_local_phone_normalised_to_e164 + test_search_by_local_format_finds_normalised) and a Playwright UI smoke that types '0772223' into the admin/customers search box and sees both TEST_iter9 buyers. (3) Order JSON exposes customer_id — verified in both /api/checkout response and /api/admin/orders list. NEW finding (fixed inline this iteration): Order.customer_name had a NOT NULL DB constraint but server.py was passing payload.customer_name verbatim, causing 500s on walk-in POS and customer-self-checkout. Fix: fall back to the resolved customer.name (which already defaults to 'Walk-in') and same for email/phone."
+}
