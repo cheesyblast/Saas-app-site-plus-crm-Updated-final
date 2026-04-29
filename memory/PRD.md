@@ -98,10 +98,15 @@ frontend/src/pages/
 ```
 
 ## Backlog
+- **P0 (next sprint)**: Phase B — SaaS Multi-tenancy. Tenants table, `merchant_id` injection on all queries, Supabase RLS. Self-hosted Supabase (VPS, Docker) — must support custom DB host via env vars (no supabase.co assumption). Super-admin (platform owner) panel + per-tenant tenant_admin.
+- **P0 (next sprint)**: Dockerization — multi-stage Dockerfile, docker-compose with App + Nginx reverse proxy + Certbot (Let's Encrypt SSL), subdomain routing.
+- **P1 (recommended before multi-tenancy)**: Refactor `server.py` (now ~3110 lines) into `/app/backend/routes/` (auth, catalog, orders, inventory, coupons, accounting, suppliers, csv_import, page_builder, theme, integrations, customers, discounts, reports).
 - P1: Wire SendGrid/Brevo/Twilio/Notify.lk live dispatch (configs ready)
 - P1: PayHere live charge integration (config ready)
-- P1: Refactor `server.py` (now ~2680 lines) into `/app/backend/routes/` (auth, catalog, orders, inventory, coupons, accounting, suppliers, csv_import, page_builder, theme, integrations)
-- P2: Multi-tenancy (tenants table, tenant_id everywhere, super-admin panel)
+- P1: Live KOKO + Mintpay APIs (currently mocked in DEFAULT_PAYMENT_METHODS)
+- P2: `sitemap.xml` + `robots.txt` from active products + page builder pages
+- P2: Customer-cache invalidation on PUT /api/admin/company (admins editing brand name see stale cached value until refresh; key cache by company.id+updated_at)
+- P2: `/api/admin/customers` response should include `user_id` + `last_order_at` for the upcoming customer detail view
 - P2: ~400×500 thumbnail variants
 - P2: Auto-allocate supplier payments against oldest invoices first
 - P2: Recharts width/height(-1) console warning on /admin/reports first paint
