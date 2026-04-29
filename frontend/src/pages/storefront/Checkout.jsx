@@ -14,7 +14,7 @@ import { formatApiErrorDetail } from "@/lib/errors";
 import { Truck, MapPin, CreditCard, UserCheck } from "lucide-react";
 
 export default function Checkout() {
-  const { items, subtotal, clear } = useCart();
+  const { items, subtotal, discount_total, subtotal_after_discount, clear } = useCart();
   const { user, loginWithGoogle } = useAuth();
   const nav = useNavigate();
 
@@ -80,7 +80,7 @@ export default function Checkout() {
   }, [form.shipping_district, form.shipping_city, subtotal]);
 
   const cities = useMemo(() => byDistrict[form.shipping_district] || [], [form.shipping_district, byDistrict]);
-  const total = subtotal + shippingFee;
+  const total = subtotal_after_discount + shippingFee;
 
   const placeOrder = async () => {
     if (items.length === 0) return toast.error("Cart is empty");
@@ -215,13 +215,22 @@ export default function Checkout() {
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-semibold truncate">{i.name}</div>
                     <div className="text-[10px] text-zinc-500 uppercase tracking-widest">{i.size} · {i.color} · ×{i.quantity}</div>
+                    {i.applied_discount && <div className="text-[10px] uppercase tracking-widest text-[#FF3B30]">{i.applied_discount.badge_label || i.applied_discount.name}</div>}
                   </div>
-                  <div className="text-xs font-mono">{formatPrice(i.price * i.quantity)}</div>
+                  <div className="text-xs font-mono text-right">
+                    {i.line_saving > 0 ? (
+                      <>
+                        <div className="text-zinc-500 line-through text-[10px]">{formatPrice(i.price * i.quantity)}</div>
+                        <div>{formatPrice(i.effective_price * i.quantity)}</div>
+                      </>
+                    ) : formatPrice(i.price * i.quantity)}
+                  </div>
                 </div>
               ))}
             </div>
             <div className="space-y-2 text-sm border-t border-zinc-900 pt-4">
               <Row label="Subtotal" value={formatPrice(subtotal)} />
+              {discount_total > 0 && <Row label="Discount" value={`- ${formatPrice(discount_total)}`} />}
               <Row label="Shipping" value={shippingFee === 0 ? "Free" : formatPrice(shippingFee)} />
               <div className="flex justify-between pt-3 border-t border-zinc-900">
                 <span className="font-heading uppercase tracking-widest">Total</span>

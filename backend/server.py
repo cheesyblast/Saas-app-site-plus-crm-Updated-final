@@ -288,6 +288,52 @@ def new_order_number() -> str:
     return "ORD-" + datetime.now(timezone.utc).strftime("%Y%m%d") + "-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=5))
 
 
+def normalize_phone_lk(raw):
+    """Sri Lanka phone normalisation -> E.164. Accepts 0777..., 777..., 94777..., +94777... ."""
+    if not raw:
+        return raw
+    digits = re.sub(r"[^\d+]", "", str(raw))
+    if digits.startswith("+94"): return digits
+    if digits.startswith("94"): return f"+{digits}"
+    if digits.startswith("0"): return f"+94{digits[1:]}"
+    if re.fullmatch(r"[1-9]\d{8}", digits): return f"+94{digits}"
+    return digits if digits.startswith("+") else digits
+
+
+async def _select_active_discounts(db: AsyncSession):
+    now = datetime.now(timezone.utc)
+    rows = (await db.execute(select(M.Discount).where(M.Discount.active == True))).scalars().all()
+    out = []
+    for d in rows:
+        if d.starts_at:
+            sa = d.starts_at if d.starts_at.tzinfo else d.starts_at.replace(tzinfo=timezone.utc)
+            if sa > now: continue
+        if d.ends_at:
+            ea = d.ends_at if d.ends_at.tzinfo else d.ends_at.replace(tzinfo=timezone.utc)
+            if ea < now: continue
+        out.append(d)
+    return out
+
+
+def _best_discount_for(product, unit_price, discounts):
+    best_save = 0.0
+    best_d = None
+    for d in discounts:
+        if d.scope == "sitewide":
+            applies = True
+        elif d.scope == "products" and product.id in (d.scope_product_ids or []):
+            applies = True
+        elif d.scope == "categories" and product.category_id and product.category_id in (d.scope_category_ids or []):
+            applies = True
+        else:
+            applies = False
+        if not applies: continue
+        save = unit_price * (d.value / 100.0) if d.type == "percent" else min(unit_price, d.value)
+        if save > best_save:
+            best_save = save; best_d = d
+    return best_save, best_d
+
+
 def _client_ip(request: Request) -> str:
     fwd = request.headers.get("x-forwarded-for", "")
     if fwd:
@@ -1301,7 +1347,7 @@ class OrderItemIn(BaseModel):
 
 
 class CheckoutIn(BaseModel):
-    customer_name: str
+    customer_name: Optional[str] = None
     customer_email: Optional[str] = None
     customer_phone: Optional[str] = None
     shipping_address: Optional[str] = None
@@ -1316,6 +1362,8 @@ class CheckoutIn(BaseModel):
     cash_tendered: Optional[float] = None  # POS: amount paid in cash
     card_last4: Optional[str] = None        # POS: card terminal last 4
     cash_account_id: Optional[str] = None   # which drawer/account received money
+    manual_discount_percent: Optional[float] = None  # POS-only: cashier-entered discount %
+    manual_discount_amount: Optional[float] = None   # POS-only: cashier-entered fixed discount
 
 
 async def _log_notification(db, channel, to, subject, body, order_id=None, status="mocked", provider=None):
@@ -1370,6 +1418,9 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
     store = await _ensure_default_store(db)
     store_id = payload.store_id or store.id
     user = await get_current_user_optional(request, db)
+    # Normalise phone for SL → +94 E.164 so SMS delivery works downstream.
+    if payload.customer_phone:
+        payload.customer_phone = normalize_phone_lk(payload.customer_phone)
     customer = None
     if user:
         customer = (await db.execute(select(M.Customer).where(M.Customer.user_id == user.user_id))).scalar_one_or_none()
@@ -1379,7 +1430,8 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
         customer = (await db.execute(select(M.Customer).where(M.Customer.email == payload.customer_email))).scalar_one_or_none()
     if not customer:
         customer = M.Customer(user_id=user.user_id if user else None,
-                              name=payload.customer_name, email=payload.customer_email,
+                              name=payload.customer_name or "Walk-in",
+                              email=payload.customer_email,
                               phone=payload.customer_phone, address=payload.shipping_address,
                               district=payload.shipping_district, city=payload.shipping_city)
         db.add(customer); await db.flush()
@@ -1389,12 +1441,18 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
             customer.name = payload.customer_name
         if payload.customer_email and not customer.email:
             customer.email = payload.customer_email
+        if payload.customer_phone and not customer.phone:
+            customer.phone = payload.customer_phone
         if payload.shipping_district:
             customer.district = payload.shipping_district
         if payload.shipping_city:
             customer.city = payload.shipping_city
 
+    # Active sitewide / category / product discount campaigns auto-apply per item.
+    active_discounts = await _select_active_discounts(db)
+
     subtotal = 0.0
+    auto_discount_total = 0.0
     order_items_data = []
     for it in payload.items:
         v = (await db.execute(select(M.Variant).where(M.Variant.id == it.variant_id))).scalar_one_or_none()
@@ -1405,8 +1463,11 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
         if not inv or inv.quantity < it.quantity:
             raise HTTPException(400, f"Insufficient stock for {p.name}")
         price = v.price_override if v.price_override is not None else p.base_price
-        line_subtotal = price * it.quantity
+        save_per_unit, applied_d = _best_discount_for(p, price, active_discounts)
+        line_save = round(save_per_unit * it.quantity, 2)
+        line_subtotal = round(price * it.quantity, 2)
         subtotal += line_subtotal
+        auto_discount_total += line_save
         variant_label = f"{v.size or ''} / {v.color or ''}".strip(" /")
         order_items_data.append((v, p, inv, price, it.quantity, line_subtotal, variant_label))
 
@@ -1443,6 +1504,16 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
         shipping_fee = 0.0
     else:
         shipping_fee = await _resolve_shipping_fee(db, payload.shipping_district, payload.shipping_city, subtotal)
+    # Auto-applied discount campaigns stack with manual coupon code, but only if both apply.
+    discount = round(discount + auto_discount_total, 2)
+    # POS may pass a manual discount (percent or fixed) that the cashier punched in.
+    pos_extra_discount = 0.0
+    if payload.source == "pos":
+        if getattr(payload, "manual_discount_percent", None):
+            pos_extra_discount = round((subtotal - discount) * (float(payload.manual_discount_percent) / 100.0), 2)
+        elif getattr(payload, "manual_discount_amount", None):
+            pos_extra_discount = round(min(max(0.0, subtotal - discount), float(payload.manual_discount_amount)), 2)
+        discount = round(discount + pos_extra_discount, 2)
     total = max(0.0, subtotal - discount + shipping_fee)
 
     # Resolve payment status by method.
@@ -2597,6 +2668,10 @@ async def pnl_report(db: AsyncSession = Depends(get_db), _: M.User = Depends(req
     end = datetime.fromisoformat(to_date) if to_date else now
     if start.tzinfo is None: start = start.replace(tzinfo=timezone.utc)
     if end.tzinfo is None: end = end.replace(tzinfo=timezone.utc)
+    # If the caller passed a date-only "to" (00:00 of the day) extend to end-of-day so that
+    # entries logged later that same day still fall inside the window.
+    if end.hour == 0 and end.minute == 0 and end.second == 0:
+        end = end.replace(hour=23, minute=59, second=59, microsecond=999999)
 
     o_q = select(M.Order).where(and_(M.Order.created_at >= start, M.Order.created_at <= end, M.Order.payment_status == "paid"))
     if store_id:
@@ -2613,6 +2688,10 @@ async def pnl_report(db: AsyncSession = Depends(get_db), _: M.User = Depends(req
         i_q = i_q.where(M.Income.store_id == store_id)
     incomes = (await db.execute(i_q)).scalars().all()
 
+    # Supplier payouts within window — they drain cash so count as expense.
+    sp_q = select(M.SupplierPayment).where(and_(M.SupplierPayment.paid_date >= start, M.SupplierPayment.paid_date <= end))
+    supplier_payments = (await db.execute(sp_q)).scalars().all()
+
     fmt = "%Y-%m" if group_by == "month" else "%Y-%m-%d"
     daily = {}
     def _b(d):
@@ -2623,6 +2702,9 @@ async def pnl_report(db: AsyncSession = Depends(get_db), _: M.User = Depends(req
         _b(i.income_date.strftime(fmt))["income"] += i.amount
     for e in expenses:
         _b(e.expense_date.strftime(fmt))["expense"] += e.amount
+    # Supplier payouts roll into the expense bucket per their paid_date
+    for sp in supplier_payments:
+        _b(sp.paid_date.strftime(fmt))["expense"] += sp.amount
     series = []
     for k in sorted(daily.keys()):
         d = daily[k]
@@ -2631,7 +2713,8 @@ async def pnl_report(db: AsyncSession = Depends(get_db), _: M.User = Depends(req
                        "profit": round(d["revenue"] + d["income"] - d["expense"], 2)})
     total_rev = round(sum(o.total for o in orders), 2)
     total_inc = round(sum(i.amount for i in incomes), 2)
-    total_exp = round(sum(e.amount for e in expenses), 2)
+    total_exp = round(sum(e.amount for e in expenses) + sum(sp.amount for sp in supplier_payments), 2)
+    total_supplier = round(sum(sp.amount for sp in supplier_payments), 2)
     # By outlet
     stores = {s.id: s.name for s in (await db.execute(select(M.Store))).scalars().all()}
     by_outlet = {}
@@ -2643,6 +2726,11 @@ async def pnl_report(db: AsyncSession = Depends(get_db), _: M.User = Depends(req
         sid = e.store_id or "_unassigned"
         b = by_outlet.setdefault(sid, {"name": stores.get(sid, "Online/Unassigned"), "revenue": 0.0, "expense": 0.0, "income": 0.0})
         b["expense"] += e.amount
+    for sp in supplier_payments:
+        # Supplier payments aren't bound to a store; bucket as Unassigned.
+        sid = "_unassigned"
+        b = by_outlet.setdefault(sid, {"name": stores.get(sid, "Online/Unassigned"), "revenue": 0.0, "expense": 0.0, "income": 0.0})
+        b["expense"] += sp.amount
     for i in incomes:
         sid = i.store_id or "_unassigned"
         b = by_outlet.setdefault(sid, {"name": stores.get(sid, "Online/Unassigned"), "revenue": 0.0, "expense": 0.0, "income": 0.0})
@@ -2654,6 +2742,7 @@ async def pnl_report(db: AsyncSession = Depends(get_db), _: M.User = Depends(req
                                "profit": round(v["revenue"] + v["income"] - v["expense"], 2)})
     return {
         "total_revenue": total_rev, "total_income": total_inc, "total_expense": total_exp,
+        "supplier_payments": total_supplier,
         "profit": round(total_rev + total_inc - total_exp, 2),
         "series": series, "by_outlet": by_outlet_arr,
         "from": start.isoformat(), "to": end.isoformat(), "group_by": group_by,

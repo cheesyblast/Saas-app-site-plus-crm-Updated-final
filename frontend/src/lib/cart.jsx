@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import api from "@/lib/api";
 
 const CartContext = createContext(null);
 const STORAGE_KEY = "threadline_cart";
@@ -6,19 +7,29 @@ const STORAGE_KEY = "threadline_cart";
 export function CartProvider({ children }) {
   const [items, setItems] = useState([]);
   const [open, setOpen] = useState(false);
+  const [discounts, setDiscounts] = useState([]);
+  // Skip writing to localStorage until we've finished the initial read.
+  // Without this, the persist-effect fires first with items=[] and wipes
+  // the saved cart on every page load (e.g. when navigating to /checkout).
+  const hydrated = useRef(false);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (raw) setItems(JSON.parse(raw));
-    } catch {}
+    } catch (e) { /* corrupt JSON — ignore */ }
+    hydrated.current = true;
   }, []);
 
   useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
-    } catch {}
+    if (!hydrated.current) return;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch (e) { /* quota */ }
   }, [items]);
+
+  // Load active discounts so the cart/checkout can show effective prices.
+  useEffect(() => {
+    api.get("/discounts/active").then(({ data }) => setDiscounts(data || [])).catch(() => {});
+  }, []);
 
   const add = (variantId, product, variant, qty = 1) => {
     setItems((prev) => {
@@ -29,7 +40,6 @@ export function CartProvider({ children }) {
         return copy;
       }
       const price = variant.price_override ?? product.base_price;
-      // Pick the image bound to this variant's color; fallback to primary; fallback to first image
       const imgs = product.images || [];
       const colorImg =
         imgs.find((i) => i.color === variant.color && i.is_primary) ||
@@ -50,6 +60,7 @@ export function CartProvider({ children }) {
           image_url: colorImg?.url || null,
           price,
           quantity: qty,
+          category_id: product.category_id || product.category?.id || null,
         },
       ];
     });
@@ -63,12 +74,46 @@ export function CartProvider({ children }) {
     );
   const clear = () => setItems([]);
 
-  const subtotal = items.reduce((s, x) => s + x.price * x.quantity, 0);
+  // Pure helper: compute the effective unit price for a single line item given
+  // the active discount campaigns. Picks the discount with the highest savings.
+  function discountForItem(item) {
+    let bestSave = 0;
+    let bestDiscount = null;
+    const now = new Date();
+    for (const d of discounts) {
+      if (!d.active) continue;
+      if (d.starts_at && new Date(d.starts_at) > now) continue;
+      if (d.ends_at && new Date(d.ends_at) < now) continue;
+      let applies = false;
+      if (d.scope === "sitewide") applies = true;
+      else if (d.scope === "products" && (d.scope_product_ids || []).includes(item.product_id)) applies = true;
+      else if (d.scope === "categories" && item.category_id && (d.scope_category_ids || []).includes(item.category_id)) applies = true;
+      if (!applies) continue;
+      const save = d.type === "percent"
+        ? item.price * (Number(d.value) / 100)
+        : Math.min(item.price, Number(d.value));
+      if (save > bestSave) { bestSave = save; bestDiscount = d; }
+    }
+    return { saving: bestSave, discount: bestDiscount, effective: Math.max(0, item.price - bestSave) };
+  }
+
+  const itemsWithPricing = items.map((it) => {
+    const { saving, discount, effective } = discountForItem(it);
+    return { ...it, effective_price: effective, line_saving: saving * it.quantity, applied_discount: discount };
+  });
+
+  const subtotal = itemsWithPricing.reduce((s, x) => s + x.price * x.quantity, 0);
+  const discount_total = itemsWithPricing.reduce((s, x) => s + x.line_saving, 0);
+  const subtotal_after_discount = Math.max(0, subtotal - discount_total);
   const count = items.reduce((s, x) => s + x.quantity, 0);
 
   return (
     <CartContext.Provider
-      value={{ items, open, setOpen, add, remove, updateQty, clear, subtotal, count }}
+      value={{
+        items: itemsWithPricing, open, setOpen, add, remove, updateQty, clear,
+        subtotal, discount_total, subtotal_after_discount, count,
+        discounts,
+      }}
     >
       {children}
     </CartContext.Provider>

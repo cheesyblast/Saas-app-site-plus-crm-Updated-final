@@ -41,18 +41,24 @@ export default function ProductDetail() {
     [product, size, color]
   );
 
-  // Filter images by active color (fallback to all if none for that color)
-  const visibleImages = useMemo(() => {
-    if (!product?.images) return [];
+  // Filter MAIN image by active color (fallback to all if none for that color),
+  // but ALWAYS keep the full image set in the thumbnail strip so customers can
+  // see every angle/colour at a glance — Shopify-style.
+  const mainImages = useMemo(() => {
+    if (!product?.images || product.images.length === 0) return [];
     if (!color) return product.images;
     const matched = product.images.filter((i) => !i.color || i.color === color);
     return matched.length > 0 ? matched : product.images;
   }, [product, color]);
 
+  const allImages = useMemo(() => product?.images || [], [product]);
+
   // When color changes, reset to first matching image
   useEffect(() => {
-    setActiveImg(0);
-  }, [color]);
+    if (!product) return;
+    const matchedIdx = (product.images || []).findIndex((i) => i.color === color);
+    setActiveImg(matchedIdx >= 0 ? matchedIdx : 0);
+  }, [color, product]);
 
   // Same-category recommendations
   const [related, setRelated] = useState([]);
@@ -70,7 +76,8 @@ export default function ProductDetail() {
     );
   }
 
-  const imgs = visibleImages.length ? visibleImages : [null];
+  const imgs = allImages.length ? allImages : [null];
+  const mainImg = imgs[activeImg] || imgs[0];
   const price = activeVariant?.price_override ?? product.base_price;
   const oos = activeVariant ? activeVariant.stock <= 0 : true;
 
@@ -80,21 +87,25 @@ export default function ProductDetail() {
         <div className="grid md:grid-cols-2 gap-12">
           <div>
             <div className="aspect-[4/5] border border-zinc-900 bg-zinc-900 relative overflow-hidden" data-testid="product-main-image">
-              {imgs[activeImg] ? (
-                <img src={imgSrc(imgs[activeImg])} alt={product.name} className="w-full h-full object-cover transition-opacity duration-300" />
+              {mainImg ? (
+                <img src={imgSrc(mainImg)} alt={product.name} className="w-full h-full object-cover transition-opacity duration-300" />
               ) : (
                 <div className="w-full h-full flex items-center justify-center text-zinc-700 font-heading uppercase tracking-widest text-xs">No Image</div>
               )}
             </div>
-            {imgs.length > 1 && (
+            {imgs.length > 1 && imgs[0] && (
               <div className="grid grid-cols-5 gap-2 mt-2">
-                {imgs.map((im, i) => (
-                  <button key={i} onClick={() => setActiveImg(i)}
-                          className={`aspect-square border ${i === activeImg ? "border-[var(--theme-primary,#FF3B30)]" : "border-zinc-800 hover:border-zinc-600"}`}
-                          data-testid={`thumb-${i}`}>
-                    {im && <img src={imgSrc(im)} alt="" className="w-full h-full object-cover" />}
-                  </button>
-                ))}
+                {imgs.map((im, i) => {
+                  const dimmed = color && im?.color && im.color !== color;
+                  return (
+                    <button key={i} onClick={() => setActiveImg(i)}
+                            className={`aspect-square border transition-all ${i === activeImg ? "border-[var(--theme-primary,#FF3B30)]" : "border-zinc-800 hover:border-zinc-600"} ${dimmed ? "opacity-40 hover:opacity-100" : ""}`}
+                            title={im?.color || ""}
+                            data-testid={`thumb-${i}`}>
+                      {im && <img src={imgSrc(im)} alt="" className="w-full h-full object-cover" />}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </div>

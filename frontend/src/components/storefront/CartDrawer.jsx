@@ -7,7 +7,7 @@ import { X, Plus, Minus } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 
 export default function CartDrawer() {
-  const { open, setOpen, items, remove, updateQty, subtotal, count } = useCart();
+  const { open, setOpen, items, remove, updateQty, subtotal, discount_total, subtotal_after_discount, count } = useCart();
   const nav = useNavigate();
 
   return (
@@ -78,16 +78,36 @@ export default function CartDrawer() {
                   </button>
                 </div>
               </div>
-              <div className="text-sm font-mono">{formatPrice(i.price * i.quantity)}</div>
+              <div className="text-sm font-mono text-right">
+                {i.line_saving > 0 ? (
+                  <>
+                    <div className="text-zinc-500 line-through text-xs">{formatPrice(i.price * i.quantity)}</div>
+                    <div className="text-[#FF3B30]">{formatPrice(i.effective_price * i.quantity)}</div>
+                    {i.applied_discount && <div className="text-[10px] uppercase tracking-widest text-[#FF3B30]">{i.applied_discount.badge_label || i.applied_discount.name}</div>}
+                  </>
+                ) : formatPrice(i.price * i.quantity)}
+              </div>
             </div>
           ))}
         </div>
 
         {items.length > 0 && (
           <SheetFooter className="p-6 border-t border-zinc-800 flex-col sm:flex-col gap-4">
-            <div className="w-full flex items-baseline justify-between">
-              <span className="text-zinc-400 font-heading uppercase tracking-widest text-xs">Subtotal</span>
-              <span className="font-mono text-lg" data-testid="cart-subtotal">{formatPrice(subtotal)}</span>
+            <div className="w-full space-y-1">
+              <div className="flex items-baseline justify-between">
+                <span className="text-zinc-400 font-heading uppercase tracking-widest text-xs">Subtotal</span>
+                <span className="font-mono text-sm" data-testid="cart-subtotal">{formatPrice(subtotal)}</span>
+              </div>
+              {discount_total > 0 && (
+                <div className="flex items-baseline justify-between text-[#FF3B30]">
+                  <span className="font-heading uppercase tracking-widest text-xs">Discount</span>
+                  <span className="font-mono text-sm" data-testid="cart-discount">- {formatPrice(discount_total)}</span>
+                </div>
+              )}
+              <div className="flex items-baseline justify-between pt-2 border-t border-zinc-900">
+                <span className="text-white font-heading uppercase tracking-widest text-xs">Total</span>
+                <span className="font-mono text-lg" data-testid="cart-total">{formatPrice(subtotal_after_discount)}</span>
+              </div>
             </div>
             <Button
               onClick={() => {

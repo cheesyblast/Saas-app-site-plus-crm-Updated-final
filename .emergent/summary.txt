@@ -1,61 +1,75 @@
-<analysis>**original_problem_statement**: Build a full-stack SaaS online modern shopping website and ERP/CRM backend for a clothing brand (currently themed around Polo shirts). Product Requirements include a storefront (home, shop, cart, checkout), admin ERP/CRM (products, inventory, POS, orders, staff), a dynamic page builder for the storefront, Supabase Postgres DB, Emergent Google OAuth, and Mock pay. Future Phase: Multi-tenancy SaaS features.
+<analysis>**original_problem_statement**: Build a full-stack SaaS online modern shopping website and ERP/CRM backend for a clothing brand. Product Requirements include a storefront (home, shop, cart, checkout), admin ERP/CRM (products, inventory, POS, orders, staff), a dynamic page builder, and Supabase Postgres DB. Currently wrapping up single-tenant core features (POS enhancements, Cart fixes, Reports) before immediately transitioning into Phase B: SaaS Multi-tenancy (Docker, Nginx, Subdomains, RLS).
 
-**User's preferred language**: INSTRUCT next agent to respond in **English** only.
+**User's preferred language**: English (INSTRUCT next agent to respond in English only)
 
-**what currently exists?**: 
-A fully functional, single-tenant full-stack application. The backend runs on FastAPI with a Supabase Postgres database. The frontend is built in React + Tailwind CSS + shadcn/ui. It features a Polo-themed storefront powered by a custom Tier-1 Page Builder allowing admins to dynamically reorder, hide, and edit sections (Hero, Featured, Brand, etc.) via the  portal. The Admin ERP/CRM includes complete dashboard, products, inventory, POS, and staff management modules. Supabase Row Level Security (RLS) is strictly configured. Images stream efficiently via custom binary endpoints.
+**what currently exists?**: A fully functional, single-tenant full-stack application. Backend uses FastAPI + Supabase Postgres, Frontend is React + Tailwind + shadcn/ui. Features include local JWT Email/Password auth, Setup Wizard, advanced ERP with paginated lists, Inventory transfers, global Page Builder with themes, Accounting/Reports engine, and SMS/Email integrations. Recently added SEO settings, Mocked KOKO/Mintpay payment options, Storefront Discount Marquees, and Customer CSV exports. 
 
-**Last working item**: 
-- Last item agent was working: The agent secured the Supabase database by enforcing Row Level Security (RLS) across all 20 public tables. The agent and user discussed the approach for true Multi-Tenancy. The user agreed to manually test the current single-tenant app first and provide a batch of edits/bugs to fix before the agent tackles the architectural complexity of multi-tenancy.
-- Status: USER VERIFICATION PENDING
-- Agent Testing Done: Y
-- Which testing method agent to use? NA (Testing is already done for the current state).
+**Last working item**:
+- Last item agent was working: Executing a 6-point punch list from the user (Message 302). The agent just implemented cart hydration fixes, updated  to show all color images at once, fixed Reports date boundaries, added backend auto-discounts to checkout, and was in the middle of updating  to support clickable image popups for variants, manual discount inputs, and phone number normalization (+94 format).
+- Status: IN PROGRESS
+- Agent Testing Done: N
+- Which testing method agent to use? both (Use  once the 6-point punch list is fully coded).
 - User Testing Done: N
 
-**All Pending/In progress Issue list**: 
-  Issue Detail:
-  - Issue 1: Wait for user's manual testing feedback and edits (P0)
-     - Attempted fixes: NA
-     - Next debug checklist: Await the next user message containing their testing notes. Implement ALL their requested UI/UX and functional edits in one batch before starting multi-tenancy.
-     - Why fix this issue and what will be achieved with the fix?: Ensures the core single-tenant platform is polished and stable before adding the massive architectural complexity of multi-tenancy.
-     - Status: USER VERIFICATION PENDING
+**All Pending/In progress Issue list**:
+  - Issue 1: POS enhancements (Variant popup, Manual Discounts, Customer Auto-create) (P0)
+     - Attempted fixes: Agent updated backend to normalize phones. Applied several  edits to  to add a variant selection popup when clicking images, and state variables for manual discount percentage/amount.
+     - Next debug checklist: Check  to ensure the variant popup opens correctly, manual discounts calculate properly in the POS cart, receipts display the applied discounts, and adding a Name + Phone auto-creates a Customer. Check if POS search works by Name/Phone.
+     - Why fix this issue and what will be achieved with the fix?: User explicitly requested easier POS item addition via tablet/mobile, manual discount capability, and smoother customer data capture.
+     - Status: IN PROGRESS
      - Is recurring issue? N
      - Should Test frontend/backend/both after fix? Both
      - Blocked on other issue: None
 
-**In progress Task List**: 
-None actively in progress. The agent is deliberately paused waiting for the user's test results.
+  - Issue 2: Cart & Checkout Auto-Discounts Validation (P0)
+     - Attempted fixes: Updated  to auto-apply active best discounts. Updated  and  to display discounted prices.
+     - Next debug checklist: Verify discounts actually deduct from the total in the frontend cart and checkout, and the backend processes the correct final totals based on category/product specific scopes.
+     - Why fix this issue and what will be achieved with the fix?: Discounts were not deducting on the storefront checkout previously.
+     - Status: TESTING PENDING
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Both
+     - Blocked on other issue: None
+
+  - Issue 3: Reports missing manual income/expenses (P1)
+     - Attempted fixes: Fixed date ranges (end-of-day) and included supplier payments in the P&L logic in .
+     - Next debug checklist: Verify the Reports page correctly tallies manual Income and Expenses alongside online/POS revenue.
+     - Why fix this issue and what will be achieved with the fix?: Accurate accounting.
+     - Status: TESTING PENDING
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? Both
+     - Blocked on other issue: None
+
+**In progress Task List**:
+  - Task 1: Complete 6-point bug fix list
+     - Where to resume: Verify  compiles and works. Verify Cart persistency on reload. Test all 6 points requested by the user.
+     - What will be achieved with this?: Closes out the single-tenant feature set.
+     - Status: IN PROGRESS
+     - Should Test frontend/backend/both after fix? Both
+     - Blocked on something: None
 
 **Upcoming and Future Tasks**:
     Upcoming Tasks:
-    - Task 1 (P0): Implement batch of UI/UX and functional edits based on user's manual testing feedback (expected in the next user message).
-    - Task 2 (P0): True Multi-tenancy Implementation (Phase C). Requires  table,  on 15+ tables, tenant resolver middleware, query filters in FastAPI, and a super-admin panel for the SaaS owner.
-    
+    - Task 2 (P0): Phase B - SaaS Multi-tenancy Architecture. 
+      - *Requirements*: Implement  table. Inject  into ALL backend queries. Implement Row Level Security (RLS) in Supabase. Use  for DB URLs and Service Role keys.
+      - *Super Admin*: Create a global platform owner panel (super_admin) while allowing each tenant to have their own tenant_admin.
+    - Task 3 (P0): Phase B - Dockerization.
+      - *Requirements*: Create a multi-stage . Create  with the App, an Nginx reverse proxy container, and Certbot for Let's Encrypt SSL. Deployable on VPS via subdomains.
     Future Tasks:
-    - Task 3 (P1): Payhere.lk live payment integration (currently using mock pay).
-    - Task 4 (P1): Bulk CSV upload for inventory/products in the admin panel.
-    - Task 5 (P2): SMS and Email sending for order status updates (currently mocked).
-    - Task 6 (P2): Generate smaller ~400x500 JPG thumbnails to optimize load times further.
+    - Task 4 (P2): Split  (>3000 lines) into .
+    - Task 5 (P2): Generate  and  from active products + page builder pages.
+    - Task 6 (P2): Live KOKO and Mintpay API integrations (currently mocked).
 
 **Completed work in this session**
-- FastAPI + Supabase Postgres + React scaffolding (DONE)
-- Admin ERP/CRM CRUD pages and API (DONE)
-- Emergent Google OAuth Integration with persistent admin via  (DONE)
-- Storefront UI with Cart and Checkout (DONE)
-- Image base64 embedding fixed to fast binary streaming  (DONE)
-- Polo brand copy and product seeding (DONE)
-- Tier-1 Page Builder  (hero, featured, brand, story, etc.) (DONE)
-- Supabase Row Level Security (RLS) enabled on all 20 public tables (DONE)
+- Phase A feature batch: Discounts UI/Models, SEO/GA fields, COD->Bank account linking, Customer CSV/XLSX export, Card->Completed order status flow (DONE)
+- Storefront Marquee for active discounts (DONE)
+- Cart empty-on-reload bug fix via  hydration fix (DONE)
+-  updated to show all color variant images simultaneously at the bottom (DONE)
 
 **Earlier issues found/mentioned but not fixed**
-   - Issue 1: Made with Emergent badge removal
-   - Debug checklist: User asked to remove it. Agent explained it is injected by the Emergent preview environment proxy/iframe and cannot be removed in the code bundle. It will automatically disappear when deployed to a custom domain.
-   - Why to solve this issue and what will be achieved with this?: Addressed user concern.
-   - Should Test frontend/backend/both after fix: NA
-   - Is recurring issue? N
+   - None outside of the active 6-point punch list.
 
 **Known issue recurrence from previous fork**
-  - Issue recurrence in previous fork: None (this is the first session).
+  - Issue recurrence in previous fork: None
   - Recurrence count: 0
   - Status: NOT STARTED
 
@@ -63,75 +77,68 @@ None actively in progress. The agent is deliberately paused waiting for the user
 
 
 **Key Technical Concepts**
-FastAPI (Backend API), SQLAlchemy async (ORM), Supabase Postgres (Transaction Pooler + RLS security), React (Frontend), Tailwind CSS + shadcn/ui (Styling), Emergent Google OAuth (Auth), Dynamic Section Rendering (Page Builder architecture).
+FastAPI, JWT Auth, SQLAlchemy async, Supabase Postgres RLS, React, Tailwind, shadcn/ui. Docker & Nginx upcoming.
 
 **key DB schema**
-  - : {id, email, role, created_at}
-  - : {id, section_type, config (JSON), sort_order, is_visible}
-  - : {id, filename, mime_type, data (Binary image data)}
-  - : {id, key, value}
-  - Core eCommerce: , , , , , 
+  - : {id, company_name, currency, meta_title, etc.}
+  - : {id, code, type, value, scope, active}
+  - : {id, name, phone, email}
+  - : {id, total_amount, payment_status, status, order_items}
 
 **changes in tech stack**
-  - MongoDB to Supabase PostgreSQL Migration: Fully adopted Supabase Postgres via Transaction Pooler as per user's strict instructions (Option B). 
+  - No changes yet, but Docker/Nginx/Certbot is the immediate next requirement.
 
 **All files of reference** 
-  -  (Core backend logic & API routes)
-  -  (SQLAlchemy schemas)
-  -  (Enforces DB security)
-  -  (Contains  array for force-promoting admins)
-  -  (Page Builder admin interface)
-  -  (Renders dynamic UI from DB)
-  -  (Test users for testing agent)
+  -  (Cart hydration fix)
+  -  (Phone normalizer)
+  - 
+  - 
+  - 
+  - 
 
 **Areas that need refactoring**: 
-None immediately. However, Task 2 (Multi-tenancy) will require a massive refactoring of  (adding  everywhere) and  (adding tenant query filters to every endpoint).
+ is over 3,000 lines long. Splitting it into routers (, , etc.) is strongly recommended before tackling Multi-tenancy.
 
 **key api endpoints**
-  - : Fetch active page sections config for storefront.
-  - : Fetch global theme colors/settings.
-  - : Fast binary image streaming (avoids base64 JSON bloat).
-  - : OAuth login callback.
+  - 
+  - 
 
 **Critical Info for New Agent**
-- **Database Rules**: Supabase Postgres is the primary DB. Row Level Security (RLS) is strictly enabled with a default-deny policy for . The FastAPI app connects as the  superuser (which bypasses RLS).
-- **Admin Access Logic**: The user's email () is force-promoted to  upon login because it is listed in the  environment variable in . The dedicated admin entry URL is .
-- **CRITICAL MULTI-TENANCY INSTRUCTION**: Do **NOT** start building multi-tenancy right away. The user explicitly stated in the last message that they are testing the app and will provide edits first. Wait for the user's edits, implement their requested UI/bug fixes entirely, and *only then* begin the multi-tenancy conversion.
+- **DB Wiped**: The database was wiped in the previous session. The current working super admin credential is  / .
+- **Hold on Phase B**: The user requested Phase B (Docker, Nginx, RLS, Multi-tenancy) at the end of their last message. **DO NOT start Phase B until you have fully verified and tested** the 6-point punch list the previous agent was working on (Cart fixes, POS UI, Reports accuracy, Checkout discounts). Test it thoroughly. Once the single-tenant app is 100% stable, then move to Docker/Multitenancy. 
 
 **documents and test reports created in this job**
   - 
   - 
   - 
-  - 
-  - 
 
 **Last 10 User Messages and any pending HUMAN messages** 
- - *User*: how do i log into the admin crm? (Resolved)
- - *User*: i logged in first. but i see only my order page... (Resolved - Agent created dedicated  and promoted user via ENV).
- - *User*: Uploaded Polo images, requested site pivot to Polo brand aesthetics, asked to remove Emergent badge. (Resolved - Wiped DB, seeded Polo items, updated copy. Explained badge is a preview artifact).
- - *User*: Asked if an Elementor-style page builder is possible for admins. (Resolved - Agent recommended Tier 1 Section CMS).
- - *User*: ok lets go with Tier 1. Make images uploadable and placemenet editable... Add a button in the featured div... (Resolved - Fully built and tested).
- - *User*: Highlighted Supabase RLS security warnings and requested SaaS multi-tenancy. (Resolved/Deferred - Agent enabled RLS immediately to secure DB, but suggested deferring multi-tenancy).
- - *User*: shall we do all edits pending from my side after testing the app myself and then do the multi tenancy or... (Resolved - Agent strongly recommended edits first).
- - *User*: lemme test the ap first and then do the multi tenancy. (Pending - Waiting for user to provide the list of edits in the next turn).
+ - *User*: (Provides 6-point punch list regarding cart emptying on reload, product detail images, missing reports data, POS customer auto-create/search, POS variant popups/manual discounts, and checkout discount deduction. Instructs to move to Phase B - Multitenancy/Docker once these are complete).
+ - *Agent*: (Acknowledges and begins batch processing. Creates cart fix, phone normalizer, updates backend reports/checkout. Starts heavily modifying . Context ends before testing).
+ - *Pending*: The agent left off modifying . You must finish checking the 6-point list, test the entire flow using , and only *then* begin the Multi-tenancy/Docker phase.
 
 **Project Health Check:**
-- Broken: None
-- Mocked: Payments (Mock pay active, Payhere.lk pending). SMS/Email sending (Mocked via console logs).
+- Broken:  might be unstable; recent  operations were performed but not tested. 
+- Mocked: KOKO and Mintpay payments.
 
 **3rd Party Integrations** 
- - Supabase (Database & Storage concept) — requires User Connection strings (Already provided and configured in ).
- - Emergent Google OAuth (Authentication) — Managed via Emergent.
- - Gemini Nano Banana (Image Generation) — Uses Emergent LLM Key (Used heavily in initial setup, currently utilizing User's uploaded Polo assets).
+ - Supabase (Postgres DB)
+ - Twilio / Notify.lk (SMS) 
 
 **Testing status**
-  - Testing agent used after significant changes: YES
+  - Testing agent used after significant changes: NO (Last used for Iteration 7, but not yet for the latest 6-point punch list).
   - Troubleshoot agent used after agent stuck in loop: NO
-  - Test files created: , 
-  - Known regressions: None
+  - Test files created: 
+  - Known regressions: None known, but POS heavily modified without a test.
 
 **Credentials to test flow:**
-Check .  is configured as super_admin.
+Admin:  / 
 
 **What agent forgot to execute**
-User asked to remove the Made with Emergent badge. The agent correctly explained that this is injected by the Emergent preview environment proxy/iframe and cannot be removed via code, and will vanish when the user deploys to their own domain. This is not forgotten, just impossible to fix in the preview context.</analysis>
+The agent was in the middle of executing the 6-point punch list. You must verify that POS receipts actually print the manual discounts, and that the POS search correctly filters by Name/Phone.
+
+**Debugging checklist for current issue**
+    Issue: POS Variant Popups & Manual Discounts UI
+    Frontend files to check: 
+    Backend files to check:  (Order creation via POS)
+    Database to check: Check if POS checkout logs proper  when Name/Phone are provided.</analysis>

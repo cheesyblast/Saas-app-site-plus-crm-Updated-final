@@ -1,11 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
-import api, { imgSrc, formatPrice, BACKEND_URL } from "@/lib/api";
+import api, { imgSrc, formatPrice } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Minus, Search, Trash2, Printer, MessageSquare } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Plus, Minus, Search, Trash2, Printer, MessageSquare, Percent } from "lucide-react";
 import { toast } from "sonner";
+import { normalizePhoneLK } from "@/lib/phone";
 
 export default function POS() {
   const [products, setProducts] = useState([]);
@@ -24,7 +26,12 @@ export default function POS() {
   const [cashTendered, setCashTendered] = useState("");
   const [cardLast4, setCardLast4] = useState("");
   const [processing, setProcessing] = useState(false);
-  const [lastOrder, setLastOrder] = useState(null); // {order_number, total}
+  const [lastOrder, setLastOrder] = useState(null);
+  const [activeDiscounts, setActiveDiscounts] = useState([]);
+  // Manual cashier-entered discount on top of auto promotions
+  const [manualDiscount, setManualDiscount] = useState({ kind: "percent", value: "" });
+  // Variant-picker popup when an image is tapped
+  const [picker, setPicker] = useState(null); // { product, variants }
 
   // Load products filtered by store stock — re-fetch when storeId changes
   useEffect(() => {
@@ -78,25 +85,38 @@ export default function POS() {
       if (idx >= 0) {
         const copy = [...prev]; copy[idx].quantity += 1; return copy;
       }
-      return [...prev, { variant_id: v.id, product_id: p.id, name: p.name, size: v.size, color: v.color, price, quantity: 1, image: p.images?.[0] }];
+      return [...prev, { variant_id: v.id, product_id: p.id, name: p.name, size: v.size, color: v.color, price, quantity: 1, image: p.images?.[0], category_id: p.category_id || null }];
     });
+    setPicker(null);
   };
   const remove = (id) => setCart((p) => p.filter((x) => x.variant_id !== id));
   const inc = (id, d) => setCart((p) => p.map((x) => x.variant_id === id ? { ...x, quantity: Math.max(1, x.quantity + d) } : x));
 
-  const subtotal = cart.reduce((s, x) => s + x.price * x.quantity, 0);
+  // Per-line subtotal + auto discount + manual cashier discount applied on top
+  const lines = useMemo(() => cart.map((c) => {
+    const { save, applied } = bestDiscount(c.product_id, c.category_id, c.price);
+    const effective = Math.max(0, c.price - save);
+    return { ...c, save_per_unit: save, applied_discount: applied, effective_price: effective };
+  }), [cart, activeDiscounts]);
+  const subtotalGross = lines.reduce((s, x) => s + x.price * x.quantity, 0);
+  const autoDiscountTotal = lines.reduce((s, x) => s + x.save_per_unit * x.quantity, 0);
+  const subtotalAfterAuto = subtotalGross - autoDiscountTotal;
+  const manualVal = parseFloat(manualDiscount.value) || 0;
+  const manualDiscountAmt = manualDiscount.kind === "percent" ? subtotalAfterAuto * (manualVal / 100) : Math.min(subtotalAfterAuto, manualVal);
+  const total = Math.max(0, subtotalAfterAuto - manualDiscountAmt);
   const tendered = parseFloat(cashTendered) || 0;
-  const change = payment === "cash" ? Math.max(0, tendered - subtotal) : 0;
+  const change = payment === "cash" ? Math.max(0, tendered - total) : 0;
 
   const checkout = async () => {
     if (cart.length === 0) return toast.error("Cart is empty");
-    if (payment === "cash" && cashTendered && tendered < subtotal) return toast.error("Cash tendered is less than total");
+    if (payment === "cash" && cashTendered && tendered < total) return toast.error("Cash tendered is less than total");
     setProcessing(true);
     try {
+      const phoneNorm = normalizePhoneLK(customer.phone);
       const { data } = await api.post("/checkout", {
         customer_name: customer.name || "Walk-in",
         customer_email: customer.email || null,
-        customer_phone: customer.phone || null,
+        customer_phone: phoneNorm || null,
         shipping_address: null,
         items: cart.map(c => ({ variant_id: c.variant_id, quantity: c.quantity })),
         coupon_code: coupon || null,
@@ -106,13 +126,16 @@ export default function POS() {
         cash_tendered: payment === "cash" && cashTendered ? tendered : null,
         card_last4: payment !== "cash" && cardLast4 ? cardLast4 : null,
         cash_account_id: accountId || null,
+        manual_discount_percent: manualDiscount.kind === "percent" && manualVal ? manualVal : null,
+        manual_discount_amount: manualDiscount.kind === "fixed" && manualVal ? manualVal : null,
       });
       toast.success(`Order ${data.order_number} · ${formatPrice(data.total)}`);
-      setLastOrder({ order_number: data.order_number, total: data.total, phone: customer.phone, email: customer.email });
-      // Auto-open print preview in new tab so cashier can print and continue
+      setLastOrder({ order_number: data.order_number, total: data.total, phone: phoneNorm, email: customer.email });
       const url = `${window.location.origin}/receipt/${data.order_number}`;
       window.open(url, "_blank");
       setCart([]); setCoupon(""); setCashTendered(""); setCardLast4("");
+      setManualDiscount({ kind: "percent", value: "" });
+      setCustomer({ id: null, name: "", email: "", phone: "" });
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Checkout failed");
     } finally { setProcessing(false); }
@@ -163,21 +186,32 @@ export default function POS() {
       <aside className="bg-zinc-950 border border-zinc-900 p-5 sticky top-6 self-start flex flex-col min-h-[70vh]">
         <h2 className="font-heading uppercase tracking-widest text-sm mb-3">Cart ({cart.length})</h2>
         <div className="flex-1 overflow-y-auto space-y-2 max-h-[35vh]">
-          {cart.map((c) => (
-            <div key={c.variant_id} className="flex items-start gap-2 border-b border-zinc-900 pb-2">
-              <div className="flex-1 min-w-0">
-                <div className="text-xs font-semibold truncate">{c.name}</div>
-                <div className="text-[10px] text-zinc-500">{c.size} {c.color ? `· ${c.color}` : ""}</div>
-                <div className="flex items-center gap-2 mt-1">
-                  <button onClick={() => inc(c.variant_id, -1)} className="border border-zinc-800 px-1"><Minus className="h-3 w-3" /></button>
-                  <span className="text-xs font-mono">{c.quantity}</span>
-                  <button onClick={() => inc(c.variant_id, 1)} className="border border-zinc-800 px-1"><Plus className="h-3 w-3" /></button>
+          {cart.map((c) => {
+            const line = lines.find(l => l.variant_id === c.variant_id) || c;
+            return (
+              <div key={c.variant_id} className="flex items-start gap-2 border-b border-zinc-900 pb-2">
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs font-semibold truncate">{c.name}</div>
+                  <div className="text-[10px] text-zinc-500">{c.size} {c.color ? `· ${c.color}` : ""}</div>
+                  {line.applied_discount && <div className="text-[10px] text-[#FF3B30] uppercase tracking-widest">{line.applied_discount.badge_label || line.applied_discount.name}</div>}
+                  <div className="flex items-center gap-2 mt-1">
+                    <button onClick={() => inc(c.variant_id, -1)} className="border border-zinc-800 px-1"><Minus className="h-3 w-3" /></button>
+                    <span className="text-xs font-mono">{c.quantity}</span>
+                    <button onClick={() => inc(c.variant_id, 1)} className="border border-zinc-800 px-1"><Plus className="h-3 w-3" /></button>
+                  </div>
                 </div>
+                <div className="text-xs font-mono text-right">
+                  {line.save_per_unit > 0 ? (
+                    <>
+                      <div className="text-zinc-500 line-through text-[10px]">{formatPrice(c.price * c.quantity)}</div>
+                      <div>{formatPrice(line.effective_price * c.quantity)}</div>
+                    </>
+                  ) : formatPrice(c.price * c.quantity)}
+                </div>
+                <button onClick={() => remove(c.variant_id)} className="text-zinc-500 hover:text-red-400"><Trash2 className="h-3 w-3" /></button>
               </div>
-              <div className="text-xs font-mono">{formatPrice(c.price * c.quantity)}</div>
-              <button onClick={() => remove(c.variant_id)} className="text-zinc-500 hover:text-red-400"><Trash2 className="h-3 w-3" /></button>
-            </div>
-          ))}
+            );
+          })}
           {cart.length === 0 && <div className="text-xs text-zinc-500 text-center py-8">Select products to add</div>}
         </div>
 
@@ -224,12 +258,26 @@ export default function POS() {
             </Select>
           )}
 
-          <div className="flex justify-between text-sm pt-2">
-            <span className="text-zinc-500 uppercase tracking-widest text-xs">Subtotal</span>
-            <span className="font-mono">{formatPrice(subtotal)}</span>
+          <div className="border border-zinc-800 p-2 space-y-2">
+            <div className="flex items-center gap-2 text-xs">
+              <Percent className="h-3 w-3 text-zinc-400"/>
+              <span className="uppercase tracking-widest text-zinc-400">Manual Discount</span>
+              <Select value={manualDiscount.kind} onValueChange={(v) => setManualDiscount(s => ({ ...s, kind: v }))}>
+                <SelectTrigger className="bg-zinc-900 border-zinc-800 rounded-none h-7 w-24 text-xs ml-auto"><SelectValue/></SelectTrigger>
+                <SelectContent className="bg-zinc-950 border-zinc-800 text-white"><SelectItem value="percent">%</SelectItem><SelectItem value="fixed">LKR</SelectItem></SelectContent>
+              </Select>
+              <Input data-testid="pos-manual-discount" type="number" step="0.01" placeholder="0" value={manualDiscount.value} onChange={(e) => setManualDiscount(s => ({ ...s, value: e.target.value }))} className="bg-zinc-900 border-zinc-800 rounded-none h-7 text-xs w-20"/>
+            </div>
+          </div>
+
+          <div className="space-y-1 pt-2">
+            <div className="flex justify-between text-xs"><span className="text-zinc-500 uppercase tracking-widest">Subtotal</span><span className="font-mono">{formatPrice(subtotalGross)}</span></div>
+            {autoDiscountTotal > 0 && <div className="flex justify-between text-xs text-[#FF3B30]"><span className="uppercase tracking-widest">Promo</span><span className="font-mono">- {formatPrice(autoDiscountTotal)}</span></div>}
+            {manualDiscountAmt > 0 && <div className="flex justify-between text-xs text-[#FF3B30]"><span className="uppercase tracking-widest">Manual</span><span className="font-mono">- {formatPrice(manualDiscountAmt)}</span></div>}
+            <div className="flex justify-between text-sm pt-1 border-t border-zinc-900"><span className="text-white uppercase tracking-widest text-xs">Total</span><span className="font-mono text-base">{formatPrice(total)}</span></div>
           </div>
           <Button onClick={checkout} disabled={processing} className="w-full bg-[#FF3B30] hover:bg-[#D92D23] rounded-none font-heading font-bold uppercase tracking-widest py-5" data-testid="pos-checkout-btn">
-            {processing ? "Processing..." : `Checkout · ${formatPrice(subtotal)}`}
+            {processing ? "Processing..." : `Checkout · ${formatPrice(total)}`}
           </Button>
 
           {lastOrder && (
@@ -243,6 +291,37 @@ export default function POS() {
           )}
         </div>
       </aside>
+
+      <Dialog open={!!picker} onOpenChange={(o) => !o && setPicker(null)}>
+        <DialogContent className="bg-zinc-950 border-zinc-800 text-white rounded-none max-w-lg" data-testid="pos-variant-picker">
+          <DialogHeader><DialogTitle className="font-heading uppercase tracking-widest">{picker?.product?.name}</DialogTitle></DialogHeader>
+          {picker && (
+            <div className="space-y-4">
+              <div className="aspect-video bg-zinc-900 border border-zinc-800 overflow-hidden">
+                {picker.product.images?.[0] && <img src={imgSrc(picker.product.images[0])} alt="" className="w-full h-full object-contain"/>}
+              </div>
+              <div className="text-xs text-zinc-500 uppercase tracking-widest">Pick a colour / size</div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 max-h-72 overflow-y-auto">
+                {picker.variants.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => add(picker.product, v)}
+                    data-testid={`picker-add-${v.id}`}
+                    className="border border-zinc-800 hover:border-[#FF3B30] hover:bg-[#FF3B30]/5 p-3 text-left transition"
+                    title={`Stock: ${v.stock ?? "?"}`}
+                  >
+                    <div className="flex items-center gap-2">
+                      {v.color_hex && <span className="inline-block h-4 w-4 border border-zinc-700" style={{ background: v.color_hex }}/>}
+                      <span className="font-heading uppercase tracking-widest text-xs">{v.size}{v.color ? ` · ${v.color}` : ""}</span>
+                    </div>
+                    <div className="text-[10px] text-zinc-500 mt-1 font-mono">{formatPrice(v.price_override ?? picker.product.base_price)} {typeof v.stock === "number" ? `· ${v.stock} in stock` : ""}</div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
