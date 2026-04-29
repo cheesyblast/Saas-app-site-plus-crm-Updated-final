@@ -1,0 +1,15 @@
+node_modules
+build
+.next
+.cache
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+.dockerignore
+README.md
+*.log
+.eslintcache
+yarn-error.log
+npm-debug.log

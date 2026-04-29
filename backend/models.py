@@ -15,6 +15,28 @@ def utcnow():
 
 
 # ---- Users & Sessions ----
+class Tenant(Base):
+    """Multi-tenant root. Phase B (multi-tenancy) — every business-row table will
+    eventually carry a `tenant_id` FK to this table. RLS policies + per-request
+    `X-Tenant-Slug` header (set by the reverse-proxy) gate cross-tenant access.
+
+    Phase B status: scaffold only. The model + idempotent migration exist so the
+    column is present in DB; the per-query injection lives behind a feature flag
+    (`MULTITENANT_ENFORCE` env var) until we cut over.
+    """
+    __tablename__ = "tenants"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    slug = Column(String(64), unique=True, nullable=False, index=True)
+    name = Column(String(255), nullable=False)
+    custom_domain = Column(String(255), nullable=True, unique=True)  # optional vanity domain
+    plan = Column(String(32), default="trial", nullable=False)        # trial | starter | pro | enterprise
+    status = Column(String(16), default="active", nullable=False)     # active | suspended | deleted
+    owner_user_id = Column(String(64), nullable=True)                 # who can admin this tenant (tenant_admin)
+    settings = Column(JSON, nullable=True)                            # arbitrary per-tenant config bag
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
 class User(Base):
     __tablename__ = "users"
     user_id = Column(String(64), primary_key=True, default=gen_uuid)

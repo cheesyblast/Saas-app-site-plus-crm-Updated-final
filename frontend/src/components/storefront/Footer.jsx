@@ -4,7 +4,7 @@ import { useCompany, logoUrl } from "@/lib/company";
 import { usePage } from "@/lib/page";
 
 export default function Footer() {
-  const { company } = useCompany();
+  const { company, loading: companyLoading } = useCompany();
   const { sections, theme } = usePage("_footer");
   const cfg = sections?.[0]?.config || {};
 
@@ -13,7 +13,7 @@ export default function Footer() {
   const sep = theme?.marquee_separator || "//";
   const showMarquee = cfg.show_marquee !== false;
   const cols = cfg.columns || [];
-  const brandName = company?.company_name || "Brand";
+  const brandName = company?.company_name || "";
 
   return (
     <footer className="border-t border-zinc-800 bg-zinc-950 mt-24">
@@ -40,11 +40,13 @@ export default function Footer() {
         <div className="col-span-2">
           {company?.logo_light_id ? (
             <img src={logoUrl(company.logo_light_id)} alt={brandName} className="h-10 max-w-[180px] object-contain mb-3"/>
-          ) : (
+          ) : companyLoading ? (
+            <div className="h-10 w-40 bg-zinc-900 animate-pulse mb-2"/>
+          ) : brandName ? (
             <div className="font-heading text-2xl font-black tracking-tighter mb-2">
               {brandName}<span className="text-[var(--theme-primary,#FF3B30)]">.</span>
             </div>
-          )}
+          ) : null}
           {cfg.tagline && <p className="text-sm text-zinc-500 max-w-sm">{cfg.tagline}</p>}
           {company?.tagline && !cfg.tagline && <p className="text-sm text-zinc-500 max-w-sm">{company.tagline}</p>}
           {(cfg.support_email || company?.email) && <p className="text-xs text-zinc-600 mt-3">{cfg.support_email || company?.email}</p>}
@@ -66,7 +68,7 @@ export default function Footer() {
         ))}
       </div>
       <div className="border-t border-zinc-800 py-6 text-center text-xs text-zinc-600 uppercase tracking-[0.25em] font-heading">
-        © {new Date().getFullYear()} {brandName} — {cfg.copyright || "All rights reserved."}
+        © {new Date().getFullYear()}{brandName ? ` ${brandName}` : ""} — {cfg.copyright || "All rights reserved."}
       </div>
     </footer>
   );

@@ -1,5 +1,38 @@
 # Changelog
 
+## Iteration 10 (2026-04-29): server.py refactor + Dockerization + Multi-tenancy scaffold
+
+### Major refactor
+- **server.py: 3110 → 309 lines.** Split into `deps.py` (shared utilities) + 27 focused route modules under `/app/backend/routes/` (auth, products, orders, reports, suppliers, csv_import, discounts, page builder, etc.). server.py now only contains startup, default-data seeding, and router mounting. Each module owns its own `APIRouter()`. All existing endpoints preserved verbatim (decorator change only). Cross-module helpers (`_ensure_default_store`, `_descendant_ids`) moved to `deps.py` to avoid circular imports.
+- **Migration runner**: each ALTER TABLE now wrapped in its own SAVEPOINT (`begin_nested`), so a single missing-table error no longer poisons the whole startup transaction.
+
+### Dockerization (P0 — production stack)
+- `/app/backend/Dockerfile` — Python 3.11-slim multi-stage (builder venv → runtime). Runs `gunicorn server:app -k uvicorn.workers.UvicornWorker` with 4 workers + healthcheck against `/api/company`.
+- `/app/frontend/Dockerfile` — Node 20-alpine build → nginx-alpine runtime. CRA build with `REACT_APP_BACKEND_URL` injected via `ARG`. SPA fallback nginx config with long-cache hashed assets.
+- `/app/docker-compose.yml` — backend + frontend + reverse-proxy nginx + certbot. ACME via webroot challenge. Auto-renewal loop every 12h.
+- `/app/deploy/nginx/nginx.conf` — TLS termination, HTTP→HTTPS redirect, `$tenant_slug` extracted from leftmost Host label and forwarded to backend as `X-Tenant-Slug` header (Phase B-ready).
+- `/app/deploy/init-letsencrypt.sh` — idempotent first-time SSL bootstrap (wildcard + apex + admin subdomain).
+- `/app/deploy/README.md` — full operations guide for self-hosted Supabase Postgres on a separate VPS (custom DB host, no `supabase.co` assumption).
+- `.env.production.example` templates at repo root + backend.
+
+### Multi-tenancy scaffold (Phase B kick-off)
+- New `Tenant` model (`models.py`): `slug`, `name`, `custom_domain`, `plan` (trial/starter/pro/enterprise), `status` (active/suspended/deleted), `owner_user_id`, `settings` JSON.
+- `tenant_id VARCHAR(64)` column added (idempotently, nullable for back-compat) to: users, products, categories, orders, customers, coupons, discounts, stores, expenses, income, cash_accounts, suppliers, payment_methods, shipping_rules, custom_pages, page_sections, integration_settings, marketing_campaigns, payroll.
+- Default tenant (slug=`default`, plan=`enterprise`) seeded on first boot. All single-tenant rows are implicitly attached to it.
+- `tenant.py`: `get_current_tenant` FastAPI dependency reads `X-Tenant-Slug` header (set by reverse-proxy nginx) → falls back to query param → falls back to `default`. Feature-flagged via `MULTITENANT_ENFORCE` env var (off by default for back-compat). Returns 404/402/410 for unknown/suspended/deleted tenants when flag is on.
+- New super-admin router (`routes/super_admin.py`) at `/api/super-admin/*`: list, create, get, update, soft-delete tenants + platform stats (`/super-admin/stats` returns tenant counts + total orders + total users). All gated on `role == 'super_admin'`. Default tenant is undeletable.
+- Footer brand-flash fix: same skeleton placeholder pattern as Navbar/AdminLayout.
+
+### Tests
+- 5/5 new pytests in `/app/backend/tests/test_iter10_multitenancy.py` GREEN: super-admin auth gating, default tenant seeded, full CRUD lifecycle (with random slug per run), platform stats shape, business tables migrated.
+- All 7 iter9 + 8 iter8 regression pytests still GREEN after refactor.
+
+### Backlog opened
+- Phase B cut-over: actually inject `tenant_id` into every business query (currently the column exists but isn't enforced). Flip `MULTITENANT_ENFORCE=true` once all routes are tenant-scoped.
+- Build a super-admin frontend (separate React route at `/super-admin` or a dedicated subdomain).
+- Tenant-aware seeding: `setup_complete` is currently global; move to per-tenant.
+- Wildcard SSL automation: certbot DNS-01 plugin to provision `*.example.com` without manual subdomain provisioning.
+
 ## Iteration 9 (2026-02-27): Fix verification + walk-in NOT-NULL fix
 ### Fixed (CRITICAL from iter8)
 - **POS customer collapse**: `/api/checkout` previously matched the auth user's Customer record before checking `payload.customer_phone/email`, so every POS sale by an authenticated cashier was attached to the cashier's own customer row. Now gated on `user.role == 'customer'`.
@@ -10,6 +43,15 @@
 ### Tests
 - 7/7 new pytests in `/app/backend/tests/test_iter9_fixes.py` GREEN.
 - 8/8 iter8 punch-list regression GREEN (was 7/8).
+
+## Iteration 8 (2026-02-27): Brand-flash fix + 6-point punch list
+(see PRD.md for full feature list)
+
+## Iteration 7 (2026-04-28): Discounts, SEO/GA, Payments+Shipping module, KOKO/Mintpay, Customer export
+(see PRD.md)
+
+## Iterations 1–6
+(see PRD.md)
 
 ## Iteration 8 (2026-02-27): Brand-flash fix + 6-point punch list
 ### New

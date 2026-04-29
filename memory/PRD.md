@@ -85,28 +85,48 @@ Full-stack SaaS online clothing store + ERP/CRM. Storefront, admin ERP/CRM, dyna
 ## Code Architecture
 ```
 backend/
-  server.py (~2680 lines — flagged for split into routers)
-  models.py
-  auth.py (require_perm + ALL_PERMISSIONS)
+  server.py               (~309 lines — startup + router mount only)
+  deps.py                 (shared util helpers)
+  tenant.py               (Phase B tenant context dependency)
+  models.py               (+ Tenant model)
+  auth.py
   database.py
   sl_locations.py
-frontend/src/pages/
-  admin/POS.jsx, AdminLayout.jsx, Suppliers.jsx, IncomeExpense.jsx,
-  CashAccounts.jsx, CsvImport.jsx, Reports.jsx, Staff.jsx, Coupons.jsx, ...
-  storefront/Receipt.jsx (public /receipt/:orderNumber)
-  components/storefront/sections/HeroSection.jsx
+  routes/                 (27 route modules)
+    auth_routes.py, setup.py, company.py, integrations.py, categories.py,
+    products.py, inventory.py, stores.py, shipping_payments.py, orders.py,
+    customers.py, coupons.py, expenses.py, payroll.py, staff.py, reports.py,
+    marketing.py, pages.py, health.py, suppliers.py, income.py, cash_accounts.py,
+    receipt.py, csv_import.py, discounts.py, customer_export.py, super_admin.py
+  Dockerfile              (multi-stage Python 3.11-slim → gunicorn+uvicorn)
+  .env.production.example
+deploy/
+  nginx/nginx.conf        (reverse-proxy with X-Tenant-Slug forwarding)
+  init-letsencrypt.sh
+  README.md               (operations guide)
+docker-compose.yml        (backend + frontend + reverse-proxy + certbot)
+.env.production.example
+frontend/
+  Dockerfile              (Node 20 build → nginx-alpine)
+  nginx.conf              (SPA fallback + asset cache)
+  src/pages/admin/POS.jsx, AdminLayout.jsx, ...
+  src/pages/storefront/Receipt.jsx (public /receipt/:orderNumber)
+  src/components/storefront/Navbar.jsx (skeleton placeholder, no brand flash)
+  src/lib/company.jsx (localStorage cache → no flash on reload)
+  src/lib/cart.jsx    (hydration ref, no empty-on-reload)
 ```
 
 ## Backlog
-- **P0 (next sprint)**: Phase B — SaaS Multi-tenancy. Tenants table, `merchant_id` injection on all queries, Supabase RLS. Self-hosted Supabase (VPS, Docker) — must support custom DB host via env vars (no supabase.co assumption). Super-admin (platform owner) panel + per-tenant tenant_admin.
-- **P0 (next sprint)**: Dockerization — multi-stage Dockerfile, docker-compose with App + Nginx reverse proxy + Certbot (Let's Encrypt SSL), subdomain routing.
-- **P1 (recommended before multi-tenancy)**: Refactor `server.py` (now ~3110 lines) into `/app/backend/routes/` (auth, catalog, orders, inventory, coupons, accounting, suppliers, csv_import, page_builder, theme, integrations, customers, discounts, reports).
-- P1: Wire SendGrid/Brevo/Twilio/Notify.lk live dispatch (configs ready)
-- P1: PayHere live charge integration (config ready)
-- P1: Live KOKO + Mintpay APIs (currently mocked in DEFAULT_PAYMENT_METHODS)
-- P2: `sitemap.xml` + `robots.txt` from active products + page builder pages
-- P2: Customer-cache invalidation on PUT /api/admin/company (admins editing brand name see stale cached value until refresh; key cache by company.id+updated_at)
-- P2: `/api/admin/customers` response should include `user_id` + `last_order_at` for the upcoming customer detail view
-- P2: ~400×500 thumbnail variants
-- P2: Auto-allocate supplier payments against oldest invoices first
-- P2: Recharts width/height(-1) console warning on /admin/reports first paint
+- **P0 (Phase B cut-over — IN PROGRESS, scaffold ready)**: actually inject `tenant_id` into every business query. `Tenant` model + `tenant_id` columns + super-admin CRUD + `X-Tenant-Slug` header (set by reverse-proxy nginx) + `MULTITENANT_ENFORCE` feature flag are all in place. Final step: refactor each route in `/app/backend/routes/*.py` to scope by `current_tenant.id` and flip the flag on.
+- **P0**: Build a super-admin frontend (separate React route at `/super-admin` or a dedicated `admin.<domain>` subdomain) that consumes `/api/super-admin/tenants` + `/api/super-admin/stats`.
+- **P1**: Tenant-aware seeding (`setup_complete` is currently global; move to per-tenant once cut-over happens).
+- **P1**: Wildcard SSL automation via certbot DNS-01 plugin so new tenant subdomains don't need manual cert provisioning.
+- **P1**: Wire SendGrid/Brevo/Twilio/Notify.lk live dispatch (configs ready)
+- **P1**: PayHere live charge integration (config ready)
+- **P1**: Live KOKO + Mintpay APIs (currently mocked in DEFAULT_PAYMENT_METHODS)
+- **P2**: `sitemap.xml` + `robots.txt` from active products + page builder pages
+- **P2**: Customer-cache invalidation on PUT /api/admin/company (admins editing brand name see stale cached value until refresh; key cache by company.id+updated_at)
+- **P2**: `/api/admin/customers` response should include `user_id` + `last_order_at` for the upcoming customer detail view
+- **P2**: ~400×500 thumbnail variants
+- **P2**: Auto-allocate supplier payments against oldest invoices first
+- **P2**: Recharts width/height(-1) console warning on /admin/reports first paint
