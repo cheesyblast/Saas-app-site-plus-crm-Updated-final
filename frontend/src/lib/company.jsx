@@ -2,18 +2,30 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import api, { BACKEND_URL, setCurrency } from "./api";
 
 const CompanyContext = createContext(null);
+const COMPANY_CACHE_KEY = "threadline_company_cache";
+
+function readCache() {
+  try {
+    const raw = localStorage.getItem(COMPANY_CACHE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch { return null; }
+}
 
 export function CompanyProvider({ children }) {
-  const [company, setCompany] = useState(null);
-  const [loading, setLoading] = useState(true);
+  // Hydrate immediately from cache so the logo / brand renders on first paint
+  // (no flash of the default brand text on every reload).
+  const cached = readCache();
+  const [company, setCompany] = useState(cached);
+  const [loading, setLoading] = useState(!cached);
 
   const refresh = useCallback(async () => {
     try {
       const { data } = await api.get("/company");
       setCompany(data);
       if (data?.currency) setCurrency(data.currency);
+      try { localStorage.setItem(COMPANY_CACHE_KEY, JSON.stringify(data)); } catch { /* quota */ }
     } catch {
-      setCompany(null);
+      setCompany((prev) => prev || null);
     } finally {
       setLoading(false);
     }

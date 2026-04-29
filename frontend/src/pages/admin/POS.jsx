@@ -48,7 +48,23 @@ export default function POS() {
       if (pos.length) setPayment(pos[0].code);
     });
     api.get("/admin/cash-accounts").then(({ data }) => setAccounts(data || []));
+    api.get("/discounts/active").then(({ data }) => setActiveDiscounts(data || [])).catch(() => {});
   }, []);
+
+  // Pick the highest-savings active promotion that applies to a line item.
+  const bestDiscount = (productId, categoryId, unitPrice) => {
+    let save = 0; let applied = null;
+    for (const d of activeDiscounts) {
+      let ok = false;
+      if (d.scope === "sitewide") ok = true;
+      else if (d.scope === "products" && (d.scope_product_ids || []).includes(productId)) ok = true;
+      else if (d.scope === "categories" && categoryId && (d.scope_category_ids || []).includes(categoryId)) ok = true;
+      if (!ok) continue;
+      const s = d.type === "percent" ? unitPrice * (Number(d.value) / 100) : Math.min(unitPrice, Number(d.value));
+      if (s > save) { save = s; applied = d; }
+    }
+    return { save, applied };
+  };
 
   // Auto-pick a matching cash drawer when store/payment changes
   useEffect(() => {
@@ -85,7 +101,7 @@ export default function POS() {
       if (idx >= 0) {
         const copy = [...prev]; copy[idx].quantity += 1; return copy;
       }
-      return [...prev, { variant_id: v.id, product_id: p.id, name: p.name, size: v.size, color: v.color, price, quantity: 1, image: p.images?.[0], category_id: p.category_id || null }];
+      return [...prev, { variant_id: v.id, product_id: p.id, name: p.name, size: v.size, color: v.color, price, quantity: 1, image: p.images?.[0], category_id: p.category_id || p.category?.id || null }];
     });
     setPicker(null);
   };
@@ -165,7 +181,15 @@ export default function POS() {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {filtered.map((p) => (
             <div key={p.id} className="border border-zinc-900 bg-zinc-950">
-              <div className="aspect-square bg-zinc-900">{p.images?.[0] && <img src={imgSrc(p.images[0])} alt="" className="w-full h-full object-cover" />}</div>
+              <button
+                type="button"
+                onClick={() => setPicker({ product: p, variants: p.variants || [] })}
+                data-testid={`pos-image-${p.id}`}
+                className="aspect-square bg-zinc-900 w-full block hover:opacity-80 transition-opacity"
+                title="Tap to pick a variant"
+              >
+                {p.images?.[0] && <img src={imgSrc(p.images[0])} alt="" className="w-full h-full object-cover" />}
+              </button>
               <div className="p-2">
                 <div className="text-xs font-semibold truncate">{p.name}</div>
                 <div className="text-[10px] text-zinc-500 font-mono">{formatPrice(p.base_price)}</div>

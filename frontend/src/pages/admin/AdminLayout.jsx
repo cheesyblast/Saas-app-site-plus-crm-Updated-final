@@ -45,7 +45,7 @@ const navTree = [
 
 export default function AdminLayout() {
   const { user, loading, logout } = useAuth();
-  const { company } = useCompany();
+  const { company, loading: companyLoading } = useCompany();
   const n = useNavigate();
   const location = useLocation();
   const [collapsed, setCollapsed] = useState(() => typeof window !== "undefined" && window.localStorage.getItem("admin_sidebar_collapsed") === "1");
@@ -101,7 +101,7 @@ export default function AdminLayout() {
     return item;
   }).filter(Boolean);
 
-  const brandName = company?.company_name || "Admin";
+  const brandName = company?.company_name || "";
   const logo = logoUrl(company?.logo_light_id);
   const sidebarW = collapsed ? "w-16" : "w-64";
 
@@ -134,14 +134,20 @@ export default function AdminLayout() {
         <div className="px-3 py-5 border-b border-zinc-900 flex items-center justify-between gap-2">
           <Link to="/admin" className="block min-w-0 flex-1 px-3">
             {collapsed ? (
-              <div className="font-heading text-base font-black text-center tracking-tighter">{brandName.charAt(0)}</div>
+              brandName ? (
+                <div className="font-heading text-base font-black text-center tracking-tighter">{brandName.charAt(0)}</div>
+              ) : (
+                <div className="h-6 w-6 mx-auto bg-zinc-900 animate-pulse"/>
+              )
             ) : logo ? (
               <img src={logo} alt={brandName} className="h-8 max-w-[170px] object-contain" />
-            ) : (
+            ) : companyLoading ? (
+              <div className="h-8 w-32 bg-zinc-900 animate-pulse"/>
+            ) : brandName ? (
               <div className="font-heading text-lg font-black tracking-tighter truncate">
                 {brandName}<span className="text-[var(--theme-primary,#FF3B30)]">.</span>
               </div>
-            )}
+            ) : null}
             {!collapsed && <div className="text-[9px] font-heading uppercase tracking-[0.3em] text-zinc-500 mt-1">Control Room</div>}
           </Link>
           <button data-testid="sidebar-collapse-btn" onClick={() => setCollapsed(!collapsed)} className="text-zinc-500 hover:text-white p-1 border border-zinc-800 hover:border-zinc-600" title={collapsed ? "Expand" : "Collapse"}>

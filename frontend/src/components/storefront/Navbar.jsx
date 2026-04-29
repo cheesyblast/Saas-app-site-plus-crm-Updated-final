@@ -9,7 +9,7 @@ import { usePage } from "@/lib/page";
 export default function Navbar() {
   const { count, setOpen } = useCart();
   const { user, logout } = useAuth();
-  const { company } = useCompany();
+  const { company, loading: companyLoading } = useCompany();
   const { sections } = usePage("_header");
   const [mobileOpen, setMobileOpen] = useState(false);
 
@@ -20,7 +20,7 @@ export default function Navbar() {
     { label: "Account", url: "/account" },
   ];
 
-  const brandName = company?.company_name || "Brand";
+  const brandName = company?.company_name || "";
   const logo = logoUrl(company?.logo_light_id);
 
   return (
@@ -30,11 +30,13 @@ export default function Navbar() {
           <Link to="/" className="flex items-center gap-3" data-testid="brand-link">
             {logo ? (
               <img src={logo} alt={brandName} className="h-8 max-w-[140px] object-contain"/>
-            ) : (
+            ) : companyLoading ? (
+              <span className="h-8 w-32 bg-zinc-900 animate-pulse"/>
+            ) : brandName ? (
               <span className="font-heading text-xl font-black tracking-tighter">
                 {brandName}<span className="text-[var(--theme-primary,#FF3B30)]">.</span>
               </span>
-            )}
+            ) : null}
           </Link>
 
           <nav className="hidden md:flex items-center gap-10">
