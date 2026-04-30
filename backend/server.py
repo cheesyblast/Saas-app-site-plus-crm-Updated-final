@@ -63,6 +63,13 @@ COLUMN_MIGRATIONS = [
     ('company_settings', 'tiktok_url', 'VARCHAR(255)'),
     ('company_settings', 'twitter_url', 'VARCHAR(255)'),
     ('company_settings', 'youtube_url', 'VARCHAR(255)'),
+    # ---- Iter11: Auth/Logo/Branding flexibility ----
+    ('company_settings', 'auth_google_enabled', 'BOOLEAN DEFAULT FALSE'),
+    ('company_settings', 'auth_google_client_id', 'VARCHAR(255)'),
+    ('company_settings', 'auth_google_client_secret', 'VARCHAR(255)'),
+    ('company_settings', 'header_logo_height', 'INTEGER DEFAULT 32'),
+    ('company_settings', 'footer_logo_height', 'INTEGER DEFAULT 40'),
+    ('company_settings', 'logo_display_mode', "VARCHAR(16) DEFAULT 'auto'"),  # auto | fit-height | fit-width
     # ---- Phase B: multi-tenancy scaffold ----
     # Every business-row table gets a tenant_id column. Backfilled to the
     # 'default' tenant by _seed_default_tenant() on first boot. Column is

@@ -291,6 +291,21 @@ export default function Builder() {
               <textarea value={(themeDraft.marquee_phrases || []).join("\n")} onChange={(e) => setThemeDraft({ ...themeDraft, marquee_phrases: e.target.value.split("\n").map(s=>s.trim()).filter(Boolean) })} className="w-full mt-1 bg-zinc-900 border border-zinc-800 rounded-none p-2 text-sm" rows={3}/>
             </div>
             <div><Label className="text-xs uppercase tracking-widest text-zinc-400">Separator</Label><Input value={themeDraft.marquee_separator || "//"} onChange={(e) => setThemeDraft({ ...themeDraft, marquee_separator: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none mt-1 font-mono" /></div>
+
+            <div className="text-[10px] uppercase tracking-widest text-zinc-500 pt-3">Apply Scope</div>
+            <label className="flex items-start gap-3 p-3 bg-zinc-900 border border-zinc-800 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={!!themeDraft.apply_to_admin}
+                onChange={(e) => setThemeDraft({ ...themeDraft, apply_to_admin: e.target.checked })}
+                className="mt-1 accent-[var(--theme-primary,#FF3B30)]"
+                data-testid="theme-apply-to-admin-toggle"
+              />
+              <div className="flex-1">
+                <div className="text-sm font-medium">Also apply to Admin / CRM panel</div>
+                <div className="text-xs text-zinc-500 mt-0.5">By default the admin stays on the dark control-room palette. Enable this to recolour the admin shell using your theme so the brand experience is consistent end-to-end.</div>
+              </div>
+            </label>
           </div>
           <DialogFooter><Button onClick={saveTheme} className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold" data-testid="save-theme-btn"><Save className="h-4 w-4 mr-2" /> Save Theme</Button></DialogFooter>
         </DialogContent>

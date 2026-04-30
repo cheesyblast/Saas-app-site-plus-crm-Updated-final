@@ -3,6 +3,7 @@ import { Outlet, NavLink, useNavigate, Link, useLocation } from "react-router-do
 import api from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { useCompany, logoUrl } from "@/lib/company";
+import { applyTheme } from "@/lib/page";
 import {
   LayoutDashboard, Package, Tag, Warehouse, ShoppingCart, Users, ScanLine,
   Store as StoreIcon, Ticket, Wallet, BarChart3, Megaphone,
@@ -64,6 +65,14 @@ export default function AdminLayout() {
     if (!user) { n("/admin/login"); return; }
     if (user.role === "customer") { n("/account"); return; }
   }, [user, loading, n]);
+
+  // Apply saved theme so the html.theme-admin class is set (CSS in index.css
+  // then recolours .admin-shell). Uses the public /theme endpoint, no auth.
+  useEffect(() => {
+    let mounted = true;
+    api.get("/theme").then(({ data }) => { if (mounted && data) applyTheme(data); }).catch(() => {});
+    return () => { mounted = false; };
+  }, []);
 
   // Auto-open the group that contains the active route (so the user sees their context)
   useEffect(() => {
@@ -129,8 +138,8 @@ export default function AdminLayout() {
   );
 
   return (
-    <div className="min-h-screen bg-zinc-950 text-white flex">
-      <aside className={`${sidebarW} flex-shrink-0 border-r border-zinc-900 bg-zinc-950 flex flex-col transition-all duration-200`}>
+    <div className="admin-shell min-h-screen bg-zinc-950 text-white flex">
+      <aside className={`${sidebarW} admin-sidebar flex-shrink-0 border-r border-zinc-900 bg-zinc-950 flex flex-col transition-all duration-200`}>
         <div className="px-3 py-5 border-b border-zinc-900 flex items-center justify-between gap-2">
           <Link to="/admin" className="block min-w-0 flex-1 px-3">
             {collapsed ? (

@@ -14,6 +14,8 @@ export default function Footer() {
   const showMarquee = cfg.show_marquee !== false;
   const cols = cfg.columns || [];
   const brandName = company?.company_name || "";
+  const logoHeight = company?.footer_logo_height || 40;
+  const logoFit = company?.logo_display_mode === "fit-width" ? "object-cover" : "object-contain";
 
   return (
     <footer className="border-t border-zinc-800 bg-zinc-950 mt-24">
@@ -39,9 +41,9 @@ export default function Footer() {
       <div className={`max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 grid grid-cols-2 md:grid-cols-${Math.max(2, cols.length + 1)} gap-8`}>
         <div className="col-span-2">
           {company?.logo_light_id ? (
-            <img src={logoUrl(company.logo_light_id)} alt={brandName} className="h-10 max-w-[180px] object-contain mb-3"/>
+            <img src={logoUrl(company.logo_light_id)} alt={brandName} style={{ height: `${logoHeight}px`, maxWidth: "200px" }} className={`${logoFit} mb-3`}/>
           ) : companyLoading ? (
-            <div className="h-10 w-40 bg-zinc-900 animate-pulse mb-2"/>
+            <div style={{ height: `${logoHeight}px` }} className="w-40 bg-zinc-900 animate-pulse mb-2"/>
           ) : brandName ? (
             <div className="font-heading text-2xl font-black tracking-tighter mb-2">
               {brandName}<span className="text-[var(--theme-primary,#FF3B30)]">.</span>

@@ -88,3 +88,170 @@ async def list_notifications(db: AsyncSession = Depends(get_db), _: M.User = Dep
              "provider": n.provider, "created_at": n.created_at.isoformat()} for n in rows]
 
 
+# ========== NOTIFICATION TEMPLATES ==========
+EVENT_KEYS = [
+    "order_placed", "order_paid", "order_shipped",
+    "order_delivered", "order_cancelled", "order_refunded",
+    "marketing_blast",
+]
+
+
+def _template_dict(t: M.NotificationTemplate) -> dict:
+    return {
+        "id": t.id, "event_key": t.event_key, "channel": t.channel,
+        "name": t.name, "subject": t.subject, "body": t.body,
+        "active": t.active, "is_default": t.is_default,
+        "created_at": t.created_at.isoformat() if t.created_at else None,
+    }
+
+
+class TemplateIn(BaseModel):
+    event_key: str
+    channel: str  # email | sms
+    name: str
+    subject: Optional[str] = None
+    body: str
+    active: bool = True
+    is_default: bool = False
+
+
+@router.get("/admin/marketing/templates")
+async def list_templates(
+    db: AsyncSession = Depends(get_db),
+    _: M.User = Depends(require_admin),
+    channel: Optional[str] = None,
+    event_key: Optional[str] = None,
+):
+    q = select(M.NotificationTemplate).order_by(M.NotificationTemplate.event_key,
+                                                 M.NotificationTemplate.channel,
+                                                 desc(M.NotificationTemplate.is_default))
+    if channel:
+        q = q.where(M.NotificationTemplate.channel == channel)
+    if event_key:
+        q = q.where(M.NotificationTemplate.event_key == event_key)
+    rows = (await db.execute(q)).scalars().all()
+    return [_template_dict(t) for t in rows]
+
+
+@router.post("/admin/marketing/templates")
+async def create_template(payload: TemplateIn, db: AsyncSession = Depends(get_db),
+                          _: M.User = Depends(require_admin)):
+    if payload.event_key not in EVENT_KEYS:
+        raise HTTPException(400, f"Invalid event_key. Allowed: {EVENT_KEYS}")
+    if payload.channel not in ("email", "sms"):
+        raise HTTPException(400, "channel must be 'email' or 'sms'")
+    t = M.NotificationTemplate(**payload.model_dump())
+    # Ensure only one default per (event_key, channel) at a time.
+    if t.is_default:
+        await db.execute(
+            select(M.NotificationTemplate).where(
+                M.NotificationTemplate.event_key == t.event_key,
+                M.NotificationTemplate.channel == t.channel,
+                M.NotificationTemplate.is_default == True,  # noqa: E712
+            )
+        )
+        # Unset existing defaults inline
+        existing = (await db.execute(select(M.NotificationTemplate).where(
+            M.NotificationTemplate.event_key == t.event_key,
+            M.NotificationTemplate.channel == t.channel,
+            M.NotificationTemplate.is_default == True,  # noqa: E712
+        ))).scalars().all()
+        for x in existing:
+            x.is_default = False
+    db.add(t)
+    await db.commit()
+    await db.refresh(t)
+    return _template_dict(t)
+
+
+@router.put("/admin/marketing/templates/{tid}")
+async def update_template(tid: str, payload: TemplateIn,
+                          db: AsyncSession = Depends(get_db),
+                          _: M.User = Depends(require_admin)):
+    t = (await db.execute(select(M.NotificationTemplate).where(M.NotificationTemplate.id == tid))).scalar_one_or_none()
+    if not t:
+        raise HTTPException(404, "Template not found")
+    for k, v in payload.model_dump().items():
+        setattr(t, k, v)
+    if t.is_default:
+        existing = (await db.execute(select(M.NotificationTemplate).where(
+            M.NotificationTemplate.event_key == t.event_key,
+            M.NotificationTemplate.channel == t.channel,
+            M.NotificationTemplate.is_default == True,  # noqa: E712
+            M.NotificationTemplate.id != t.id,
+        ))).scalars().all()
+        for x in existing:
+            x.is_default = False
+    t.updated_at = datetime.now(timezone.utc)
+    await db.commit()
+    return _template_dict(t)
+
+
+@router.delete("/admin/marketing/templates/{tid}")
+async def delete_template(tid: str, db: AsyncSession = Depends(get_db),
+                          _: M.User = Depends(require_admin)):
+    t = (await db.execute(select(M.NotificationTemplate).where(M.NotificationTemplate.id == tid))).scalar_one_or_none()
+    if not t:
+        raise HTTPException(404, "Template not found")
+    await db.delete(t)
+    await db.commit()
+    return {"ok": True}
+
+
+# ========== BULK MARKETING SEND ==========
+class BulkSendPayload(BaseModel):
+    channel: str  # email | sms
+    subject: Optional[str] = None
+    body: str
+    customer_ids: Optional[List[str]] = None  # None = all opted-in customers
+    district: Optional[str] = None
+    marketing_opt_in_only: bool = True
+
+
+@router.post("/admin/marketing/bulk-send")
+async def bulk_send(payload: BulkSendPayload,
+                    db: AsyncSession = Depends(get_db),
+                    _: M.User = Depends(require_admin)):
+    """Queue an email/SMS blast to selected customers.
+
+    Currently writes a NotificationLog row per recipient with status='queued'.
+    The dispatch worker (Iter12+) will pick these up and call the configured
+    provider. This is the SAME pipeline used for transactional notifications,
+    so the merchant only needs to configure providers once (see /admin/integrations).
+    """
+    if payload.channel not in ("email", "sms"):
+        raise HTTPException(400, "channel must be 'email' or 'sms'")
+
+    q = select(M.Customer)
+    if payload.customer_ids:
+        q = q.where(M.Customer.id.in_(payload.customer_ids))
+    else:
+        if payload.district:
+            q = q.where(M.Customer.district == payload.district)
+        if payload.marketing_opt_in_only:
+            q = q.where(M.Customer.marketing_opt_in == True)  # noqa: E712
+    rows = (await db.execute(q)).scalars().all()
+
+    address_field = "email" if payload.channel == "email" else "phone"
+    queued = 0
+    for c in rows:
+        addr = getattr(c, address_field)
+        if not addr:
+            continue
+        body = payload.body.replace("{{customer_name}}", c.name or "")\
+                            .replace("{{first_name}}", (c.name or "").split()[0] if c.name else "")
+        log = M.NotificationLog(
+            channel=payload.channel,
+            to_address=addr,
+            subject=payload.subject if payload.channel == "email" else None,
+            body=body,
+            status="queued",
+            provider="bulk-send",
+        )
+        db.add(log)
+        queued += 1
+    await db.commit()
+    logger.info("bulk_send queued %s/%s recipients via %s", queued, len(rows), payload.channel)
+    return {"ok": True, "queued": queued, "skipped": len(rows) - queued}
+
+

@@ -72,7 +72,7 @@ export default function StorefrontLayout() {
     api.get("/company").then(({ data }) => applyCompanyHead(data)).catch(() => {});
   }, []);
   return (
-    <div className="min-h-screen flex flex-col bg-zinc-950 text-white">
+    <div className="storefront-shell min-h-screen flex flex-col">
       <Navbar />
       <DiscountMarquee />
       <main className="flex-1">

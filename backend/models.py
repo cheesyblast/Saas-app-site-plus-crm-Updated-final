@@ -105,6 +105,14 @@ class CompanySettings(Base):
     tiktok_url = Column(String(255), nullable=True)
     twitter_url = Column(String(255), nullable=True)
     youtube_url = Column(String(255), nullable=True)
+    # ---- Auth integrations (client-self-config) ----
+    auth_google_enabled = Column(Boolean, default=False, nullable=False)
+    auth_google_client_id = Column(String(255), nullable=True)
+    auth_google_client_secret = Column(String(255), nullable=True)
+    # ---- Branding / Logo flexibility ----
+    header_logo_height = Column(Integer, default=32, nullable=False)
+    footer_logo_height = Column(Integer, default=40, nullable=False)
+    logo_display_mode = Column(String(16), default="auto", nullable=False)  # auto | fit-height | fit-width
     setup_complete = Column(Boolean, default=False, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
@@ -502,6 +510,30 @@ class ThemeSetting(Base):
     __tablename__ = "theme_settings"
     id = Column(String(32), primary_key=True, default="default")
     config = Column(JSON, nullable=False, default=dict)
+    updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class NotificationTemplate(Base):
+    """Reusable email/sms templates the merchant edits in Marketing → Templates.
+
+    `event_key` is the trigger ("order_placed", "order_paid", "order_shipped",
+    "order_delivered", "order_cancelled", "order_refunded", "marketing_blast").
+    `channel` is "email" or "sms". Subject is only meaningful for email.
+
+    Variables in subject/body use {{order_number}}, {{customer_name}},
+    {{total}}, {{tracking_url}}, {{brand_name}} — rendered by simple .replace
+    at dispatch time so we don't pull in jinja2 just for this.
+    """
+    __tablename__ = "notification_templates"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    event_key = Column(String(64), nullable=False, index=True)
+    channel = Column(String(16), nullable=False)  # email | sms
+    name = Column(String(128), nullable=False)
+    subject = Column(String(255), nullable=True)
+    body = Column(Text, nullable=False)
+    active = Column(Boolean, default=True, nullable=False)
+    is_default = Column(Boolean, default=False, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 

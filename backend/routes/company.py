@@ -51,6 +51,13 @@ def _company_dict(cs: M.CompanySettings):
         "facebook_pixel_id": cs.facebook_pixel_id,
         "instagram_url": cs.instagram_url, "facebook_url": cs.facebook_url,
         "tiktok_url": cs.tiktok_url, "twitter_url": cs.twitter_url, "youtube_url": cs.youtube_url,
+        # Auth (Google client_secret intentionally omitted from public response)
+        "auth_google_enabled": bool(cs.auth_google_enabled),
+        "auth_google_client_id": cs.auth_google_client_id,
+        # Branding
+        "header_logo_height": cs.header_logo_height or 32,
+        "footer_logo_height": cs.footer_logo_height or 40,
+        "logo_display_mode": cs.logo_display_mode or "auto",
     }
 
 
@@ -76,6 +83,14 @@ class CompanyUpdate(BaseModel):
     tiktok_url: Optional[str] = None
     twitter_url: Optional[str] = None
     youtube_url: Optional[str] = None
+    # Auth integrations
+    auth_google_enabled: Optional[bool] = None
+    auth_google_client_id: Optional[str] = None
+    auth_google_client_secret: Optional[str] = None
+    # Branding
+    header_logo_height: Optional[int] = None
+    footer_logo_height: Optional[int] = None
+    logo_display_mode: Optional[str] = None
 
 
 @router.get("/company")

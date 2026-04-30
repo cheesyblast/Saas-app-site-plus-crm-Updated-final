@@ -10,10 +10,9 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Trash2, Plus, Upload, Save, Mail, MessageSquare, Building2, KeyRound, Search, Bell, UserCog, DollarSign } from "lucide-react";
+import { Trash2, Plus, Upload, Save, Mail, MessageSquare, Building2, KeyRound, Search, Bell, UserCog, DollarSign, Palette, Lock } from "lucide-react";
 import { toast } from "sonner";
 import { formatApiErrorDetail } from "@/lib/errors";
-import Notifications from "./Notifications";
 import Staff from "./Staff";
 import Payroll from "./Payroll";
 
@@ -36,26 +35,24 @@ export default function Settings() {
     <div className="text-white">
       <div className="mb-8">
         <h1 className="font-heading text-3xl sm:text-4xl font-black uppercase tracking-tighter">Settings</h1>
-        <p className="text-zinc-500 text-sm mt-2">Company, SEO, integrations, staff, payroll &amp; notifications.</p>
+        <p className="text-zinc-500 text-sm mt-2">Company info, branding, SEO, authentication, staff &amp; payroll. Email, SMS &amp; notifications now live in <a href="/admin/marketing" className="text-[var(--theme-primary,#FF3B30)] hover:underline">Marketing</a>.</p>
       </div>
       <Tabs defaultValue="company" className="w-full">
         <TabsList className="bg-zinc-900 border border-zinc-800 rounded-none p-0 flex w-full overflow-x-auto">
           <TabsTrigger value="company" data-testid="settings-tab-company" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Building2 className="h-3 w-3 mr-2"/>Company</TabsTrigger>
+          <TabsTrigger value="branding" data-testid="settings-tab-branding" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Palette className="h-3 w-3 mr-2"/>Branding</TabsTrigger>
           <TabsTrigger value="seo" data-testid="settings-tab-seo" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Search className="h-3 w-3 mr-2"/>SEO &amp; Analytics</TabsTrigger>
+          {isOwner && <TabsTrigger value="auth" data-testid="settings-tab-auth" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Lock className="h-3 w-3 mr-2"/>Authentication</TabsTrigger>}
           <TabsTrigger value="account" data-testid="settings-tab-account" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><KeyRound className="h-3 w-3 mr-2"/>My Account</TabsTrigger>
-          {isOwner && <TabsTrigger value="email" data-testid="settings-tab-email" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Mail className="h-3 w-3 mr-2"/>Email</TabsTrigger>}
-          {isOwner && <TabsTrigger value="sms" data-testid="settings-tab-sms" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><MessageSquare className="h-3 w-3 mr-2"/>SMS</TabsTrigger>}
-          <TabsTrigger value="notifications" data-testid="settings-tab-notifications" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Bell className="h-3 w-3 mr-2"/>Notifications</TabsTrigger>
           {isOwner && <TabsTrigger value="staff" data-testid="settings-tab-staff" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><UserCog className="h-3 w-3 mr-2"/>Staff</TabsTrigger>}
           <TabsTrigger value="payroll" data-testid="settings-tab-payroll" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><DollarSign className="h-3 w-3 mr-2"/>Payroll</TabsTrigger>
         </TabsList>
 
         <TabsContent value="company" className="mt-6"><CompanyTab company={company} refresh={refresh}/></TabsContent>
+        <TabsContent value="branding" className="mt-6"><BrandingTab company={company} refresh={refresh}/></TabsContent>
         <TabsContent value="seo" className="mt-6"><SeoTab company={company} refresh={refresh}/></TabsContent>
+        {isOwner && <TabsContent value="auth" className="mt-6"><AuthTab company={company} refresh={refresh}/></TabsContent>}
         <TabsContent value="account" className="mt-6"><AccountTab user={user}/></TabsContent>
-        {isOwner && <TabsContent value="email" className="mt-6"><IntegrationTab kind="email"/></TabsContent>}
-        {isOwner && <TabsContent value="sms" className="mt-6"><IntegrationTab kind="sms"/></TabsContent>}
-        <TabsContent value="notifications" className="mt-6"><Notifications/></TabsContent>
         {isOwner && <TabsContent value="staff" className="mt-6"><Staff/></TabsContent>}
         <TabsContent value="payroll" className="mt-6"><Payroll/></TabsContent>
       </Tabs>
@@ -288,7 +285,7 @@ const SMS_PROVIDERS = [
   ]},
 ];
 
-function IntegrationTab({ kind }) {
+export function IntegrationTab({ kind }) {
   const [items, setItems] = useState([]);
   const [editing, setEditing] = useState(null);
   const providers = kind === "email" ? EMAIL_PROVIDERS : SMS_PROVIDERS;
@@ -570,6 +567,255 @@ function PaymentsTab() {
           <DialogFooter><Button variant="outline" onClick={()=>setEditing(null)} className="rounded-none">Cancel</Button><Button onClick={save} className="bg-[var(--theme-primary,#FF3B30)] rounded-none uppercase tracking-widest" data-testid="save-payment-method">Save</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+
+
+// ====================== BRANDING ======================
+// Logo flexibility — header & footer logo height sliders + display mode.
+// Applied via CSS variables in StorefrontLayout / Footer / Navbar so changes
+// are instant after save.
+function BrandingTab({ company, refresh }) {
+  const [form, setForm] = useState({
+    header_logo_height: 32,
+    footer_logo_height: 40,
+    logo_display_mode: "auto",
+  });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!company) return;
+    setForm({
+      header_logo_height: company.header_logo_height || 32,
+      footer_logo_height: company.footer_logo_height || 40,
+      logo_display_mode: company.logo_display_mode || "auto",
+    });
+  }, [company]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put("/admin/company", form);
+      await refresh();
+      toast.success("Branding saved");
+    } catch (e) { toast.error(formatApiErrorDetail(e)); }
+    finally { setBusy(false); }
+  };
+
+  const logo = company?.logo_light_id ? `${BACKEND_URL}/api/media/${company.logo_light_id}` : null;
+  const previewClass = form.logo_display_mode === "fit-width" ? "object-cover" : "object-contain";
+
+  return (
+    <div className="grid lg:grid-cols-2 gap-6">
+      {/* Settings card */}
+      <div className="bg-zinc-900 border border-zinc-800 p-6 space-y-6">
+        <div>
+          <h3 className="font-heading text-sm uppercase tracking-widest mb-1">Logo Display</h3>
+          <p className="text-xs text-zinc-500">Resize and position your logo on the storefront. Tall logos? Increase header height. Wide logos? Use fit-width.</p>
+        </div>
+
+        <div>
+          <Label className="text-xs uppercase tracking-widest text-zinc-400">Display Mode</Label>
+          <Select value={form.logo_display_mode} onValueChange={(v) => setForm({ ...form, logo_display_mode: v })}>
+            <SelectTrigger className="bg-zinc-950 border-zinc-800 rounded-none mt-1" data-testid="logo-display-mode"><SelectValue/></SelectTrigger>
+            <SelectContent className="bg-zinc-900 border-zinc-800 rounded-none">
+              <SelectItem value="auto">Auto-fit (recommended)</SelectItem>
+              <SelectItem value="fit-height">Fit to height (tall logos)</SelectItem>
+              <SelectItem value="fit-width">Fill width (wide banners)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <Label className="text-xs uppercase tracking-widest text-zinc-400">Header Logo Height</Label>
+            <span className="text-xs font-mono text-zinc-300">{form.header_logo_height}px</span>
+          </div>
+          <input
+            type="range" min={24} max={80} step={2}
+            value={form.header_logo_height}
+            onChange={(e) => setForm({ ...form, header_logo_height: parseInt(e.target.value) })}
+            className="w-full accent-[var(--theme-primary,#FF3B30)]"
+            data-testid="header-logo-height-slider"
+          />
+          <div className="flex justify-between text-[10px] text-zinc-600 mt-1"><span>24px</span><span>80px</span></div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <Label className="text-xs uppercase tracking-widest text-zinc-400">Footer Logo Height</Label>
+            <span className="text-xs font-mono text-zinc-300">{form.footer_logo_height}px</span>
+          </div>
+          <input
+            type="range" min={32} max={96} step={2}
+            value={form.footer_logo_height}
+            onChange={(e) => setForm({ ...form, footer_logo_height: parseInt(e.target.value) })}
+            className="w-full accent-[var(--theme-primary,#FF3B30)]"
+            data-testid="footer-logo-height-slider"
+          />
+          <div className="flex justify-between text-[10px] text-zinc-600 mt-1"><span>32px</span><span>96px</span></div>
+        </div>
+
+        <Button onClick={save} disabled={busy} className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold w-full" data-testid="save-branding-btn">
+          <Save className="h-4 w-4 mr-2"/>{busy ? "Saving..." : "Save Branding"}
+        </Button>
+      </div>
+
+      {/* Live preview card */}
+      <div className="bg-zinc-900 border border-zinc-800 p-6 space-y-4">
+        <h3 className="font-heading text-sm uppercase tracking-widest">Live Preview</h3>
+
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Header</div>
+          <div className="bg-zinc-950 border border-zinc-800 px-6 py-4 flex items-center">
+            {logo ? (
+              <img src={logo} alt="logo" style={{ height: `${form.header_logo_height}px`, maxWidth: "180px" }} className={previewClass}/>
+            ) : (
+              <div className="text-zinc-500 text-xs">Upload a logo in Company tab to see preview</div>
+            )}
+          </div>
+        </div>
+
+        <div>
+          <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Footer</div>
+          <div className="bg-zinc-950 border border-zinc-800 px-6 py-5 flex items-center">
+            {logo ? (
+              <img src={logo} alt="logo" style={{ height: `${form.footer_logo_height}px`, maxWidth: "200px" }} className={previewClass}/>
+            ) : (
+              <div className="text-zinc-500 text-xs">No logo uploaded</div>
+            )}
+          </div>
+        </div>
+
+        <div className="text-[11px] text-zinc-500 leading-relaxed border-t border-zinc-800 pt-3">
+          💡 <span className="text-zinc-300 font-medium">Tip:</span> For tall portrait logos, choose "Fit to height" and increase the header height to 56–72px. For wide horizontal banners, "Auto-fit" at 32–40px usually works best.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ====================== AUTHENTICATION ======================
+// Client-self-config for Google OAuth. When disabled, the customer storefront
+// login/register/checkout pages do NOT show the Google button. When the
+// merchant pastes credentials and toggles ON, the button reappears.
+// Admin login is JWT-only and never exposes Google.
+function AuthTab({ company, refresh }) {
+  const [form, setForm] = useState({
+    auth_google_enabled: false,
+    auth_google_client_id: "",
+    auth_google_client_secret: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [showSecret, setShowSecret] = useState(false);
+
+  useEffect(() => {
+    if (!company) return;
+    setForm({
+      auth_google_enabled: !!company.auth_google_enabled,
+      auth_google_client_id: company.auth_google_client_id || "",
+      auth_google_client_secret: "",  // never echoed back from server for security
+    });
+  }, [company]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      // Only send client_secret if the user typed something — empty means "keep current".
+      const payload = {
+        auth_google_enabled: form.auth_google_enabled,
+        auth_google_client_id: form.auth_google_client_id,
+      };
+      if (form.auth_google_client_secret.trim()) {
+        payload.auth_google_client_secret = form.auth_google_client_secret;
+      }
+      await api.put("/admin/company", payload);
+      await refresh();
+      toast.success("Authentication settings saved");
+      setForm((f) => ({ ...f, auth_google_client_secret: "" }));
+    } catch (e) { toast.error(formatApiErrorDetail(e)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div className="bg-zinc-900 border border-zinc-800 p-6 space-y-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex-1">
+            <h3 className="font-heading text-sm uppercase tracking-widest">Login Methods</h3>
+            <p className="text-xs text-zinc-500 mt-1">Email + password (JWT) is always enabled for customers and admins. Optionally enable Google sign-in for the customer storefront.</p>
+          </div>
+        </div>
+
+        <div className="border border-zinc-800 bg-zinc-950 p-4 flex items-center gap-4">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium">Email + Password (JWT)</div>
+            <div className="text-xs text-zinc-500 mt-0.5">Default for both customers and admin / staff. Cannot be disabled.</div>
+          </div>
+          <span className="text-[10px] uppercase tracking-widest font-heading text-emerald-400 border border-emerald-700/50 px-2 py-1">Always On</span>
+        </div>
+
+        <div className="border border-zinc-800 bg-zinc-950 p-4 space-y-4">
+          <div className="flex items-center gap-4">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium">Google Sign-in (Customer storefront only)</div>
+              <div className="text-xs text-zinc-500 mt-0.5">Adds a "Continue with Google" button on customer login, register, and checkout. Admin login is unaffected.</div>
+            </div>
+            <Switch
+              checked={form.auth_google_enabled}
+              onCheckedChange={(v) => setForm({ ...form, auth_google_enabled: v })}
+              data-testid="google-auth-toggle"
+            />
+          </div>
+
+          {form.auth_google_enabled && (
+            <div className="space-y-3 pt-3 border-t border-zinc-800">
+              <div>
+                <Label className="text-xs uppercase tracking-widest text-zinc-400">Google OAuth Client ID</Label>
+                <Input
+                  value={form.auth_google_client_id}
+                  onChange={(e) => setForm({ ...form, auth_google_client_id: e.target.value })}
+                  placeholder="123456789-abc.apps.googleusercontent.com"
+                  className="bg-zinc-900 border-zinc-800 rounded-none mt-1 font-mono text-xs"
+                  data-testid="google-client-id-input"
+                />
+              </div>
+              <div>
+                <Label className="text-xs uppercase tracking-widest text-zinc-400">Google OAuth Client Secret</Label>
+                <div className="flex gap-2 mt-1">
+                  <Input
+                    type={showSecret ? "text" : "password"}
+                    value={form.auth_google_client_secret}
+                    onChange={(e) => setForm({ ...form, auth_google_client_secret: e.target.value })}
+                    placeholder={company?.auth_google_client_id ? "•••••• (leave empty to keep current)" : "GOCSPX-..."}
+                    className="bg-zinc-900 border-zinc-800 rounded-none flex-1 font-mono text-xs"
+                    data-testid="google-client-secret-input"
+                  />
+                  <Button type="button" variant="outline" onClick={() => setShowSecret(!showSecret)} className="rounded-none border-zinc-700">
+                    {showSecret ? "Hide" : "Show"}
+                  </Button>
+                </div>
+              </div>
+              <div className="text-[11px] text-zinc-500 bg-zinc-900 border border-zinc-800 p-3">
+                <div className="font-medium text-zinc-300 mb-1">How to get these:</div>
+                <ol className="space-y-0.5 list-decimal list-inside">
+                  <li>Open <a className="text-[var(--theme-primary,#FF3B30)] hover:underline" target="_blank" rel="noreferrer" href="https://console.cloud.google.com/apis/credentials">Google Cloud Console → Credentials</a></li>
+                  <li>Create OAuth 2.0 Client ID (type: Web application)</li>
+                  <li>Add your storefront origin to "Authorised JavaScript origins"</li>
+                  <li>Add <code className="text-zinc-300">{typeof window !== "undefined" ? window.location.origin : ""}/dashboard</code> to "Authorised redirect URIs"</li>
+                  <li>Copy the Client ID + Secret here</li>
+                </ol>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <Button onClick={save} disabled={busy} className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold" data-testid="save-auth-btn">
+          <Save className="h-4 w-4 mr-2"/>{busy ? "Saving..." : "Save Authentication"}
+        </Button>
+      </div>
     </div>
   );
 }

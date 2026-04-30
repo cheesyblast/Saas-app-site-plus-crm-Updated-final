@@ -22,6 +22,8 @@ export default function Navbar() {
 
   const brandName = company?.company_name || "";
   const logo = logoUrl(company?.logo_light_id);
+  const logoHeight = company?.header_logo_height || 32;
+  const logoFit = company?.logo_display_mode === "fit-width" ? "object-cover" : "object-contain";
 
   return (
     <header className="sticky top-0 z-40 border-b border-zinc-800 bg-zinc-950/90 backdrop-blur-xl">
@@ -29,9 +31,9 @@ export default function Navbar() {
         <div className="h-16 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-3" data-testid="brand-link">
             {logo ? (
-              <img src={logo} alt={brandName} className="h-8 max-w-[140px] object-contain"/>
+              <img src={logo} alt={brandName} style={{ height: `${logoHeight}px`, maxWidth: "180px" }} className={logoFit}/>
             ) : companyLoading ? (
-              <span className="h-8 w-32 bg-zinc-900 animate-pulse"/>
+              <span style={{ height: `${logoHeight}px` }} className="w-32 bg-zinc-900 animate-pulse"/>
             ) : brandName ? (
               <span className="font-heading text-xl font-black tracking-tighter">
                 {brandName}<span className="text-[var(--theme-primary,#FF3B30)]">.</span>

@@ -63,6 +63,24 @@ class CheckoutIn(BaseModel):
 
 
 async def _log_notification(db, channel, to, subject, body, order_id=None, status="mocked", provider=None):
+    """Best-effort live dispatch + structured log row.
+
+    If the merchant has configured a default provider for `channel` (via
+    Marketing → Email/SMS Setup), the message is actually sent and the row's
+    status reflects the result. If no provider is configured, status='mocked'
+    so order flow keeps working in dev.
+    """
+    if to and status == "mocked":
+        try:
+            from dispatcher import dispatch
+            sent_status, sent_provider = await dispatch(db, channel, to, subject, body)
+            status = sent_status
+            provider = sent_provider
+        except Exception as e:
+            # Never let a broken provider block an order — fall back to mocked log.
+            logger.warning("_log_notification dispatch failed: %s", e)
+            status = "failed"
+            provider = "exception"
     db.add(M.NotificationLog(channel=channel, to_address=to, subject=subject, body=body,
                               related_order=order_id, status=status, provider=provider))
 

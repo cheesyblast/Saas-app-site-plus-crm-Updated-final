@@ -2,20 +2,53 @@
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;500;600;700;800;900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Unbounded:wght@300;400;500;600;700;800;900&family=IBM+Plex+Sans:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Archivo+Black&family=Anton&family=Bebas+Neue&family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&family=Playfair+Display:wght@400;500;600;700&family=Lora:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&family=Poppins:wght@300;400;500;600;700&family=Montserrat:wght@300;400;500;600;700&family=Oswald:wght@400;500;600;700&family=Raleway:wght@300;400;500;600;700&display=swap');
+
+:root {
+  /* Theme defaults — overwritten at runtime by applyTheme() with values from
+     the admin-set Theme Builder. Every storefront surface should reference
+     these vars instead of a hardcoded zinc/white pair. */
+  --theme-bg: #09090B;
+  --theme-text: #FAFAFA;
+  --theme-text-muted: #A1A1AA;
+  --theme-primary: #FF3B30;
+  --theme-primary-hover: #D92D23;
+  --theme-surface: #18181B;
+  --font-heading: 'Unbounded', 'IBM Plex Sans', sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+  --font-eyebrow: 'IBM Plex Sans', system-ui, sans-serif;
+  --heading-scale: 1;
+  --body-line-height: 1.5;
+}
 
 body {
     margin: 0;
-    font-family: var(--font-body, 'IBM Plex Sans'), system-ui, -apple-system, sans-serif;
+    font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background: #09090B;
-    color: #FAFAFA;
+    background: var(--theme-bg);
+    color: var(--theme-text);
+    line-height: var(--body-line-height);
 }
 
 .font-heading {
-    font-family: var(--font-heading, 'Unbounded'), 'IBM Plex Sans', sans-serif;
+    font-family: var(--font-heading);
     letter-spacing: -0.02em;
+}
+
+/* Storefront wrapper: paints the page using theme vars; admin overrides
+   with .theme-admin class on <html> when the user opts to apply theme to
+   admin too. */
+.storefront-shell {
+    background-color: var(--theme-bg);
+    color: var(--theme-text);
+}
+html.theme-admin .admin-shell {
+    background-color: var(--theme-bg) !important;
+    color: var(--theme-text) !important;
+}
+html.theme-admin .admin-shell .admin-sidebar {
+    background-color: var(--theme-bg) !important;
 }
 
 .font-mono {

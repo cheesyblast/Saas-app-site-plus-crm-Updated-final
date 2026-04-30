@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/lib/auth";
+import { useCompany } from "@/lib/company";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -10,6 +11,8 @@ import { formatApiErrorDetail } from "@/lib/errors";
 
 export default function Login({ adminMode = false }) {
   const { loginWithPassword, loginWithGoogle } = useAuth();
+  const { company } = useCompany();
+  const googleEnabled = !!company?.auth_google_enabled;
   const nav = useNavigate();
   const loc = useLocation();
   const [email, setEmail] = useState("");
@@ -65,7 +68,7 @@ export default function Login({ adminMode = false }) {
             </Button>
           </form>
 
-          {!adminMode && (
+          {!adminMode && googleEnabled && (
             <>
               <div className="flex items-center gap-3 my-6">
                 <div className="flex-1 h-px bg-zinc-800" />

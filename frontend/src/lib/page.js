@@ -21,10 +21,11 @@ export function usePage(pageName = "home") {
   return { ...data, loading, refresh };
 }
 
-export function applyTheme(theme) {
+export function applyTheme(theme, options = {}) {
   if (!theme || typeof window === "undefined") return;
   const root = document.documentElement;
   const set = (k, v) => v && root.style.setProperty(k, v);
+
   set("--theme-primary", theme.primary_color);
   set("--theme-primary-hover", theme.primary_color_hover || theme.primary_color);
   set("--theme-bg", theme.background_color);
@@ -35,12 +36,33 @@ export function applyTheme(theme) {
   set("--font-body", theme.font_body);
   if (theme.heading_scale) root.style.setProperty("--heading-scale", String(theme.heading_scale));
   if (theme.line_height) root.style.setProperty("--body-line-height", String(theme.line_height));
-  if (theme.background_color) {
-    document.body.style.backgroundColor = theme.background_color;
-  }
-  if (theme.text_color) {
-    document.body.style.color = theme.text_color;
-  }
+
+  // Tell the rest of the SPA whether to recolour the admin too.
+  // `apply_to_admin` is saved on the theme blob; AdminLayout reads it via the
+  // `is-themed-admin` body class for cheap CSS gating.
+  const themeAdmin = !!theme.apply_to_admin;
+  document.documentElement.classList.toggle("theme-admin", themeAdmin);
+
+  // Force-paint the body so storefront pages without a wrapping div pick it up.
+  if (theme.background_color) document.body.style.backgroundColor = theme.background_color;
+  if (theme.text_color) document.body.style.color = theme.text_color;
+
+  // Optional: a "soft" surface tint derived from background for sticky bars,
+  // cart drawers, etc. — slightly lighter (20% white blend) for dark themes.
+  const surfaceTint = (() => {
+    const bg = theme.background_color || "#09090B";
+    // Naïve hex blend toward white(10%) — good enough for variants.
+    try {
+      const m = bg.match(/^#([0-9a-f]{6})$/i);
+      if (!m) return bg;
+      const num = parseInt(m[1], 16);
+      const r = Math.min(255, ((num >> 16) & 255) + 10);
+      const g = Math.min(255, ((num >> 8) & 255) + 10);
+      const b = Math.min(255, (num & 255) + 10);
+      return `rgb(${r}, ${g}, ${b})`;
+    } catch { return bg; }
+  })();
+  set("--theme-surface", surfaceTint);
 }
 
 /* Wrap a section to apply per-section style overrides */
