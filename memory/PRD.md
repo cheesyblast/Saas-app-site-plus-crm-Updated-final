@@ -119,11 +119,10 @@ frontend/
 ## Backlog
 - **P0 (Phase B cut-over — IN PROGRESS, scaffold ready)**: actually inject `tenant_id` into every business query. `Tenant` model + `tenant_id` columns + super-admin CRUD + `X-Tenant-Slug` header (set by reverse-proxy nginx) + `MULTITENANT_ENFORCE` feature flag are all in place. Final step: refactor each route in `/app/backend/routes/*.py` to scope by `current_tenant.id` and flip the flag on.
 - **P0**: Build a super-admin frontend (separate React route at `/super-admin` or a dedicated `admin.<domain>` subdomain) that consumes `/api/super-admin/tenants` + `/api/super-admin/stats`.
+- **P0**: Live PayHere/KOKO/Mintpay charge — redirect to gateway hosted page + signature verification + webhook (`/api/payment/<provider>/notify` + `/api/payment/<provider>/return`). Currently still mocked as `instant_paid` until sandbox creds are available.
 - **P1**: Tenant-aware seeding (`setup_complete` is currently global; move to per-tenant once cut-over happens).
 - **P1**: Wildcard SSL automation via certbot DNS-01 plugin so new tenant subdomains don't need manual cert provisioning.
-- **P1**: Wire SendGrid/Brevo/Twilio/Notify.lk live dispatch (configs ready)
-- **P1**: PayHere live charge integration (config ready)
-- **P1**: Live KOKO + Mintpay APIs (currently mocked in DEFAULT_PAYMENT_METHODS)
+- **P1**: Email/SMS dispatch is currently synchronous (blocks the order request). Move to a background worker for bulk-send + transactional notifications.
 - **P2**: `sitemap.xml` + `robots.txt` from active products + page builder pages
 - **P2**: Customer-cache invalidation on PUT /api/admin/company (admins editing brand name see stale cached value until refresh; key cache by company.id+updated_at)
 - **P2**: `/api/admin/customers` response should include `user_id` + `last_order_at` for the upcoming customer detail view

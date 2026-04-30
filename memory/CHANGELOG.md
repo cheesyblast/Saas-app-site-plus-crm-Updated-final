@@ -1,6 +1,58 @@
 # Changelog
 
+## Iteration 11 (2026-04-30): Theme/Auth/Branding/Marketing overhaul + live dispatch
+
+### Theme editor (full fix)
+- `applyTheme()` now sets CSS vars on `:root` AND classes the `<html>` element with `theme-admin` when the saved theme has `apply_to_admin: true`.
+- New `index.css` rules: `.storefront-shell` (every storefront page), `html.theme-admin .admin-shell` (admin shell when admin theming enabled). `body` defaults pull from CSS vars so font/bg/text actually flow through.
+- `StorefrontLayout` no longer hardcodes `bg-zinc-950 text-white`; `AdminLayout` adds `.admin-shell` class + reads theme on mount.
+- Builder.jsx Theme dialog has a new `apply_to_admin` toggle (default OFF).
+
+### Authentication (Google OAuth gated)
+- New CompanySettings columns: `auth_google_enabled` (bool, default false), `auth_google_client_id`, `auth_google_client_secret`.
+- Default state: Google sign-in disabled. NO Google button on customer Login/Register/Checkout or admin Login.
+- New `Settings → Authentication` tab (super_admin only): toggle + Client ID/Secret inputs + step-by-step Google Cloud Console instructions. Secret is never echoed back from the GET response.
+- Customer Login/Register/Checkout pages render the Google button only when `company.auth_google_enabled === true`.
+- Admin login is JWT-only forever (no Google option ever).
+
+### Logo flexibility (Branding tab)
+- New CompanySettings columns: `header_logo_height` (int, default 32), `footer_logo_height` (default 40), `logo_display_mode` ('auto' | 'fit-height' | 'fit-width').
+- New `Settings → Branding` tab with sliders (24–80px header, 32–96px footer) + display-mode dropdown + live preview thumbnail.
+- Navbar + Footer apply the height inline; `.object-contain` vs `.object-cover` picks based on display mode.
+
+### Marketing consolidation (no sub-routes)
+- Marketing.jsx rewritten with 6 horizontal tabs: **Campaigns / Email Setup / SMS Setup / Templates / Bulk Send / Logs**.
+- Email/SMS/Notifications tabs REMOVED from Settings.
+- New `NotificationTemplate` model + CRUD at `/api/admin/marketing/templates` for per-event email/SMS templates (`order_placed`, `order_paid`, `order_shipped`, `order_delivered`, `order_cancelled`, `order_refunded`, `marketing_blast`).
+- New bulk-send endpoint `/api/admin/marketing/bulk-send` with: customer_ids manual select, district filter, marketing_opt_in_only toggle, `{{customer_name}}`/`{{first_name}}` substitution.
+
+### Live email/SMS dispatch
+- New `/app/backend/dispatcher.py` with provider implementations: SMTP, SendGrid, Brevo, Twilio, Notify.lk.
+- `_log_notification()` in routes/orders.py now calls `dispatcher.dispatch(...)`. If a provider is configured (Marketing → Email/SMS Setup) it's actually sent; otherwise falls back to `status='mocked'` so the order flow keeps working.
+- The flip from MOCKED → LIVE happens automatically the moment the merchant pastes a valid API key and saves the integration. No code changes needed.
+
+### Quality of life
+- Removed "Made with Emergent" badge from `index.html` (storefront + admin).
+- IntegrationTab exported from Settings.jsx for reuse from Marketing.
+
+### Tests
+- 7/7 new pytests in `test_iter11_branding_marketing.py` GREEN.
+- 19/19 across iter9 + iter10 + iter11 GREEN.
+- Frontend e2e: 16/16 explicit assertions GREEN per testing agent (iter10 report).
+
+### Backlog opened
+- Live PayHere/KOKO/Mintpay redirect+webhook (currently still mocked as instant_paid — needs sandbox creds to test).
+- Server.py modularisation backlog still open (now 309 lines but several routes/* files growing — consider further splits).
+- Email/SMS dispatch is synchronous in-request — for high-volume bulk sends, move to a background worker (RQ / Celery / arq).
+
 ## Iteration 10 (2026-04-29): server.py refactor + Dockerization + Multi-tenancy scaffold
+(see PRD.md for full details)
+
+## Iteration 9 (2026-02-27): Fix verification + walk-in NOT-NULL fix
+(see PRD.md)
+
+## Iteration 8 (2026-02-27): Brand-flash fix + 6-point punch list
+(see PRD.md)
 
 ### Major refactor
 - **server.py: 3110 → 309 lines.** Split into `deps.py` (shared utilities) + 27 focused route modules under `/app/backend/routes/` (auth, products, orders, reports, suppliers, csv_import, discounts, page builder, etc.). server.py now only contains startup, default-data seeding, and router mounting. Each module owns its own `APIRouter()`. All existing endpoints preserved verbatim (decorator change only). Cross-module helpers (`_ensure_default_store`, `_descendant_ids`) moved to `deps.py` to avoid circular imports.
