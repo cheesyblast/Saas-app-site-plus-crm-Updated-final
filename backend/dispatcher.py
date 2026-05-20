@@ -47,6 +47,56 @@ async def _get_default_provider(db: AsyncSession, kind: str) -> Optional[M.Integ
     return rows[0]
 
 
+def _render_placeholders(text: Optional[str], ctx: dict) -> str:
+    """Tiny {{var}} template renderer used by both transactional & marketing
+    notifications. Missing keys render as empty string (no jinja2)."""
+    if not text:
+        return ""
+    out = text
+    for k, v in ctx.items():
+        out = out.replace("{{" + k + "}}", "" if v is None else str(v))
+    # Strip any leftover {{…}} placeholders so they don't reach customers.
+    import re as _re
+    return _re.sub(r"\{\{[^}]+\}\}", "", out)
+
+
+async def render_template_for_event(
+    db: AsyncSession,
+    event_key: str,
+    channel: str,
+    ctx: dict,
+    fallback_subject: Optional[str] = None,
+    fallback_body: Optional[str] = None,
+) -> Tuple[str, str]:
+    """Look up the merchant's default active NotificationTemplate for the given
+    event_key + channel and render placeholders. Falls back to the supplied
+    hardcoded subject/body if no active template exists, so order flow keeps
+    working out of the box.
+
+    Returns: (subject, body)
+    """
+    rows = (await db.execute(
+        select(M.NotificationTemplate).where(
+            M.NotificationTemplate.event_key == event_key,
+            M.NotificationTemplate.channel == channel,
+            M.NotificationTemplate.active == True,  # noqa: E712
+        )
+    )).scalars().all()
+    tpl = None
+    for r in rows:
+        if r.is_default:
+            tpl = r
+            break
+    if tpl is None and rows:
+        tpl = rows[0]
+    if tpl is None:
+        return (_render_placeholders(fallback_subject, ctx),
+                _render_placeholders(fallback_body, ctx))
+    subject = _render_placeholders(tpl.subject or fallback_subject, ctx)
+    body = _render_placeholders(tpl.body or fallback_body or "", ctx)
+    return subject, body
+
+
 def _send_email_smtp(cfg: dict, to: str, subject: str, body: str) -> Tuple[bool, str]:
     """Generic SMTP send. cfg keys: host, port, username, password, from, use_tls (bool)."""
     host = cfg.get("host"); port = int(cfg.get("port") or 587)
@@ -101,10 +151,29 @@ def _send_email_sendgrid(cfg: dict, to: str, subject: str, body: str) -> Tuple[b
 
 
 def _send_email_brevo(cfg: dict, to: str, subject: str, body: str) -> Tuple[bool, str]:
-    """Brevo (formerly Sendinblue) v3 smtp/email. cfg keys: api_key, from, from_name."""
-    api_key = cfg.get("api_key"); sender = cfg.get("from")
+    """Brevo (formerly Sendinblue). Supports both:
+      - v3 REST API: cfg.api_key starts with 'xkeysib-' (preferred).
+      - SMTP relay: cfg.api_key starts with 'xsmtpsib-' OR cfg.smtp_user is set
+        (Brevo dashboard → SMTP & API → SMTP tab).
+    cfg keys: api_key, from, from_name, [smtp_user] (Brevo login email).
+    """
+    api_key = (cfg.get("api_key") or "").strip()
+    sender = cfg.get("from")
     if not (api_key and sender):
         return False, "Missing api_key/from"
+    # Auto-route SMTP relay keys through SMTP because the v3 REST endpoint
+    # rejects them with 401 "Key not found".
+    if api_key.startswith("xsmtpsib-") or cfg.get("smtp_user"):
+        smtp_cfg = {
+            "host": "smtp-relay.brevo.com",
+            "port": 587,
+            "username": cfg.get("smtp_user") or sender,
+            "password": api_key,
+            "from": sender,
+            "use_tls": True,
+        }
+        ok, msg = _send_email_smtp(smtp_cfg, to, subject, body)
+        return ok, f"brevo-smtp: {msg}"
     try:
         r = httpx.post(
             "https://api.brevo.com/v3/smtp/email",
@@ -181,6 +250,14 @@ async def dispatch(db: AsyncSession, channel: str, to: str, subject: Optional[st
         return "mocked", "none"
     cfg = integ.config or {}
     provider = integ.provider
+    # Backwards-compatibility shims for legacy admin-UI config keys.
+    if "from" not in cfg:
+        if cfg.get("from_email"):
+            cfg = {**cfg, "from": cfg["from_email"]}
+        elif cfg.get("from_number"):
+            cfg = {**cfg, "from": cfg["from_number"]}
+    if provider == "notifylk":
+        provider = "notify-lk"
     try:
         if channel == "email":
             if provider == "smtp":

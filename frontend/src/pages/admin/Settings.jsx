@@ -262,26 +262,27 @@ const EMAIL_PROVIDERS = [
   { value: "smtp", label: "SMTP (any provider)", fields: [
     { key: "host", label: "SMTP Host" }, { key: "port", label: "Port", type: "number" },
     { key: "username", label: "Username" }, { key: "password", label: "Password", type: "password" },
-    { key: "from_email", label: "From email" }, { key: "from_name", label: "From name" },
+    { key: "from", label: "From email" }, { key: "from_name", label: "From name" },
     { key: "use_tls", label: "Use TLS", type: "switch" }
   ]},
   { value: "sendgrid", label: "SendGrid", fields: [
     { key: "api_key", label: "API Key", type: "password" },
-    { key: "from_email", label: "From email" }, { key: "from_name", label: "From name" }
+    { key: "from", label: "From email" }, { key: "from_name", label: "From name" }
   ]},
   { value: "brevo", label: "Brevo (Sendinblue)", fields: [
-    { key: "api_key", label: "API Key", type: "password" },
-    { key: "from_email", label: "From email" }, { key: "from_name", label: "From name" }
+    { key: "api_key", label: "API Key (xkeysib-… for v3 API, OR xsmtpsib-… for SMTP relay)", type: "password" },
+    { key: "smtp_user", label: "SMTP Login email (only for xsmtpsib- keys — your Brevo account email)" },
+    { key: "from", label: "From email (verified sender)" }, { key: "from_name", label: "From name" }
   ]},
 ];
 const SMS_PROVIDERS = [
   { value: "twilio", label: "Twilio", fields: [
     { key: "account_sid", label: "Account SID" }, { key: "auth_token", label: "Auth Token", type: "password" },
-    { key: "from_number", label: "From Number" }
+    { key: "from", label: "From Number (E.164, e.g. +14155551234)" }
   ]},
-  { value: "notifylk", label: "Notify.lk", fields: [
+  { value: "notify-lk", label: "Notify.lk", fields: [
     { key: "user_id", label: "User ID" }, { key: "api_key", label: "API Key", type: "password" },
-    { key: "sender_id", label: "Sender ID" }
+    { key: "sender_id", label: "Sender ID (default: NotifyDEMO)" }
   ]},
 ];
 

@@ -333,6 +333,7 @@ from routes import (
     discounts as _discounts,
     customer_export as _customer_export,
     super_admin as _super_admin,
+    payhere as _payhere,
 )
 
 for _mod in (
@@ -340,7 +341,7 @@ for _mod in (
     _stores, _shipping_payments, _orders, _customers, _coupons, _expenses,
     _payroll, _staff, _reports, _marketing, _pages, _health, _suppliers,
     _income, _cash_accounts, _receipt, _csv_import, _discounts, _customer_export,
-    _super_admin,
+    _super_admin, _payhere,
 ):
     api.include_router(_mod.router)
 

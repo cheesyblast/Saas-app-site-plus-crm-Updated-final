@@ -212,15 +212,17 @@ class BulkSendPayload(BaseModel):
 async def bulk_send(payload: BulkSendPayload,
                     db: AsyncSession = Depends(get_db),
                     _: M.User = Depends(require_admin)):
-    """Queue an email/SMS blast to selected customers.
+    """Send an email/SMS blast to selected customers using the merchant's
+    default active provider for the channel (Brevo / Notify.lk / SMTP / etc.).
 
-    Currently writes a NotificationLog row per recipient with status='queued'.
-    The dispatch worker (Iter12+) will pick these up and call the configured
-    provider. This is the SAME pipeline used for transactional notifications,
-    so the merchant only needs to configure providers once (see /admin/integrations).
+    Each recipient triggers a `dispatcher.dispatch()` call inline and the
+    resulting status (sent/failed/mocked) is logged to NotificationLog. The
+    response summarises how many were sent vs failed vs skipped.
     """
     if payload.channel not in ("email", "sms"):
         raise HTTPException(400, "channel must be 'email' or 'sms'")
+
+    from dispatcher import dispatch
 
     q = select(M.Customer)
     if payload.customer_ids:
@@ -233,25 +235,44 @@ async def bulk_send(payload: BulkSendPayload,
     rows = (await db.execute(q)).scalars().all()
 
     address_field = "email" if payload.channel == "email" else "phone"
-    queued = 0
+    sent = 0
+    failed = 0
+    skipped = 0
+    last_error = None
     for c in rows:
         addr = getattr(c, address_field)
         if not addr:
+            skipped += 1
             continue
         body = payload.body.replace("{{customer_name}}", c.name or "")\
                             .replace("{{first_name}}", (c.name or "").split()[0] if c.name else "")
-        log = M.NotificationLog(
+        subject = payload.subject if payload.channel == "email" else None
+        try:
+            status, provider = await dispatch(db, payload.channel, addr, subject, body)
+        except Exception as e:
+            logger.exception("bulk_send dispatch crash for %s: %s", addr, e)
+            status, provider = "failed", "exception"
+            last_error = str(e)
+        if status == "sent":
+            sent += 1
+        else:
+            failed += 1
+        db.add(M.NotificationLog(
             channel=payload.channel,
             to_address=addr,
-            subject=payload.subject if payload.channel == "email" else None,
+            subject=subject,
             body=body,
-            status="queued",
-            provider="bulk-send",
-        )
-        db.add(log)
-        queued += 1
+            status=status,
+            provider=provider or "bulk-send",
+        ))
     await db.commit()
-    logger.info("bulk_send queued %s/%s recipients via %s", queued, len(rows), payload.channel)
-    return {"ok": True, "queued": queued, "skipped": len(rows) - queued}
+    logger.info("bulk_send %s: sent=%s failed=%s skipped=%s (of %s rows)",
+                payload.channel, sent, failed, skipped, len(rows))
+    return {"ok": True, "sent": sent, "failed": failed, "skipped": skipped,
+            # `queued` = number of recipients dispatch was attempted for
+            # (sent + failed). Kept as a legacy alias so older UI / tests
+            # that check `queued` keep working.
+            "queued": sent + failed,
+            "total": len(rows), "last_error": last_error}
 
 

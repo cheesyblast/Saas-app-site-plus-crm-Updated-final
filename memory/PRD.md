@@ -3,6 +3,14 @@
 ## Original Problem Statement
 Full-stack SaaS online clothing store + ERP/CRM. Storefront, admin ERP/CRM, dynamic Page Builder, Supabase Postgres, JWT email/password auth (admin) + Emergent Google OAuth (customer), Mock + PayHere checkout. Sri Lankan store with district/city addresses & shipping rules. Multi-tenancy is a future phase.
 
+### Iteration 12 (2026-02-19): PayHere live + Notification templates wired
+- **PayHere hosted checkout fully integrated**: backend `/app/backend/routes/payhere.py` signs the request (MD5 of `merchant_id + order_id + amount(2dp) + currency + UPPER(MD5(secret))`), returns a `payhere_redirect: {endpoint, fields}` payload in the `/api/checkout` response when `payment_method == "payhere"`. Frontend `Checkout.jsx` now auto-submits a hidden form to `https://www.payhere.lk/pay/checkout` (or sandbox). `/api/payhere/notify` webhook verifies `md5sig`, marks the order paid, credits the store's bank cash account, fires the `order_paid` notification template. Status codes: `2 → paid`, `0 → pending`, `-1 → cancelled`, `-2 → failed`, `-3 → refunded`.
+- **Order notifications now use the templates** the merchant edits at Marketing → Templates. `_log_notification` in `routes/orders.py` accepts `event_key` + `ctx` and renders `{{customer_name}}`, `{{order_number}}`, `{{total}}`, `{{tracking_url}}`, `{{brand_name}}` etc., falling back to hardcoded English if no active template exists. Wired for: `order_placed`, `order_paid`, `order_shipped`, `order_delivered`, `order_cancelled`.
+- **Bulk send now actually dispatches** (was queue-only). `/admin/marketing/bulk-send` calls `dispatcher.dispatch()` per recipient inline and returns `{sent, failed, skipped, queued}`. Toast surfaces failures so merchants notice broken provider credentials immediately.
+- **Brevo SMTP-relay fallback**: dispatcher auto-routes `xsmtpsib-…` keys through `smtp-relay.brevo.com:587` (because v3 API endpoint rejects those). Settings UI now exposes an `smtp_user` field for the Brevo SMTP login email.
+- **Config key alignment fix**: Settings UI used to save email/SMS config with keys `from_email` / `from_number` / provider `notifylk`, while dispatcher expected `from` / `notify-lk`. Form now saves correct keys, dispatcher accepts old keys for back-compat.
+- **Cart-persist race bug**: localStorage was being wiped on reload because the hydrate effect raced the persist effect. Replaced with synchronous `useState(initialiser)` reading localStorage so the cart survives page reload.
+
 ## Implemented Features
 
 ### Iteration 1-2 (2026-02-25): Foundation
@@ -119,7 +127,7 @@ frontend/
 ## Backlog
 - **P0 (Phase B cut-over — IN PROGRESS, scaffold ready)**: actually inject `tenant_id` into every business query. `Tenant` model + `tenant_id` columns + super-admin CRUD + `X-Tenant-Slug` header (set by reverse-proxy nginx) + `MULTITENANT_ENFORCE` feature flag are all in place. Final step: refactor each route in `/app/backend/routes/*.py` to scope by `current_tenant.id` and flip the flag on.
 - **P0**: Build a super-admin frontend (separate React route at `/super-admin` or a dedicated `admin.<domain>` subdomain) that consumes `/api/super-admin/tenants` + `/api/super-admin/stats`.
-- **P0**: Live PayHere/KOKO/Mintpay charge — redirect to gateway hosted page + signature verification + webhook (`/api/payment/<provider>/notify` + `/api/payment/<provider>/return`). Currently still mocked as `instant_paid` until sandbox creds are available.
+- **P0**: Live KOKO/Mintpay charge — redirect to gateway hosted page + signature verification + webhook. (PayHere is now live — see Iteration 12.)
 - **P1**: Tenant-aware seeding (`setup_complete` is currently global; move to per-tenant once cut-over happens).
 - **P1**: Wildcard SSL automation via certbot DNS-01 plugin so new tenant subdomains don't need manual cert provisioning.
 - **P1**: Email/SMS dispatch is currently synchronous (blocks the order request). Move to a background worker for bulk-send + transactional notifications.

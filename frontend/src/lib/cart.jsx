@@ -1,28 +1,22 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import api from "@/lib/api";
 
 const CartContext = createContext(null);
 const STORAGE_KEY = "threadline_cart";
 
 export function CartProvider({ children }) {
-  const [items, setItems] = useState([]);
+  // Hydrate items synchronously from localStorage so we never race against
+  // the persist-effect (which previously wiped the cart on every reload).
+  const [items, setItems] = useState(() => {
+    try {
+      const raw = typeof window !== "undefined" ? window.localStorage.getItem(STORAGE_KEY) : null;
+      return raw ? JSON.parse(raw) : [];
+    } catch (e) { return []; }
+  });
   const [open, setOpen] = useState(false);
   const [discounts, setDiscounts] = useState([]);
-  // Skip writing to localStorage until we've finished the initial read.
-  // Without this, the persist-effect fires first with items=[] and wipes
-  // the saved cart on every page load (e.g. when navigating to /checkout).
-  const hydrated = useRef(false);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) setItems(JSON.parse(raw));
-    } catch (e) { /* corrupt JSON — ignore */ }
-    hydrated.current = true;
-  }, []);
-
-  useEffect(() => {
-    if (!hydrated.current) return;
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(items)); } catch (e) { /* quota */ }
   }, [items]);
 

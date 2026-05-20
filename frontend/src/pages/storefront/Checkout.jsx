@@ -100,6 +100,12 @@ export default function Checkout() {
         source: "online",
       });
       clear();
+      // PayHere redirect: backend returns a signed payload; we POST a hidden
+      // form to the PayHere hosted checkout. Browser navigates away.
+      if (data.payhere_redirect) {
+        _submitPayHereForm(data.payhere_redirect);
+        return;
+      }
       nav(`/order/${data.order_number}`);
     } catch (e) {
       toast.error(formatApiErrorDetail(e?.response?.data?.detail) || "Order failed");
@@ -265,3 +271,22 @@ function Section({ title, icon: Icon, children }) {
 }
 function Field({ label, children }) { return (<div><Label className="text-xs uppercase tracking-widest text-zinc-400 mb-1 block">{label}</Label>{children}</div>); }
 function Row({ label, value }) { return (<div className="flex justify-between"><span className="text-zinc-500 text-xs uppercase tracking-widest">{label}</span><span className="font-mono">{value}</span></div>); }
+
+// Build a hidden <form>, populate hidden inputs from the signed PayHere
+// payload returned by /api/checkout, and submit it. The browser navigates
+// away to PayHere's hosted checkout page.
+function _submitPayHereForm({ endpoint, fields }) {
+  const f = document.createElement("form");
+  f.method = "POST";
+  f.action = endpoint;
+  f.style.display = "none";
+  Object.entries(fields || {}).forEach(([k, v]) => {
+    const inp = document.createElement("input");
+    inp.type = "hidden";
+    inp.name = k;
+    inp.value = v == null ? "" : String(v);
+    f.appendChild(inp);
+  });
+  document.body.appendChild(f);
+  f.submit();
+}

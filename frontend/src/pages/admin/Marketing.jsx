@@ -269,7 +269,16 @@ function BulkSendPanel() {
       };
       if (!allMode) payload.customer_ids = Array.from(selected);
       const { data } = await api.post("/admin/marketing/bulk-send", payload);
-      toast.success(`Queued ${data.queued} ${form.channel}s${data.skipped ? ` (skipped ${data.skipped} with no ${form.channel === "email" ? "email" : "phone"})` : ""}`);
+      const sent = data.sent ?? data.queued ?? 0;
+      const failed = data.failed ?? 0;
+      const skipped = data.skipped ?? 0;
+      if (failed > 0) {
+        toast.error(`Sent ${sent}, failed ${failed}${skipped ? `, skipped ${skipped}` : ""}. Check Logs tab.`);
+      } else if (sent === 0) {
+        toast.warning(`No recipients reached. ${skipped ? `Skipped ${skipped} with missing ${form.channel === "email" ? "email" : "phone"}.` : "Check provider setup in Email/SMS Setup tab."}`);
+      } else {
+        toast.success(`Sent ${sent} ${form.channel}${sent === 1 ? "" : "s"}${skipped ? ` (skipped ${skipped})` : ""}`);
+      }
       setForm({ channel: form.channel, subject: "", body: "" });
       setSelected(new Set());
     } catch (e) { toast.error(e?.response?.data?.detail || "Send failed"); }

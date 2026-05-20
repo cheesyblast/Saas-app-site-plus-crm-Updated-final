@@ -62,17 +62,106 @@ class CheckoutIn(BaseModel):
     manual_discount_amount: Optional[float] = None   # POS-only: cashier-entered fixed discount
 
 
-async def _log_notification(db, channel, to, subject, body, order_id=None, status="mocked", provider=None):
+async def _resolve_brand_name(db: AsyncSession) -> str:
+    cs = (await db.execute(select(M.CompanySettings).where(M.CompanySettings.id == "default"))).scalar_one_or_none()
+    return (cs.company_name if cs else "") or "Our Store"
+
+
+async def _build_payhere_redirect(db: AsyncSession, order: M.Order, payload, origin: str):
+    """Look up the active PayHere PaymentMethod row, sign the request, and
+    return a payload the frontend posts (hidden form) to PayHere's hosted
+    checkout. Returns None when PayHere isn't configured so checkout falls
+    back to 'order received' instead of crashing.
+    """
+    import hashlib
+    pm = (await db.execute(
+        select(M.PaymentMethod).where(
+            M.PaymentMethod.code == "payhere",
+            M.PaymentMethod.active == True,  # noqa: E712
+        )
+    )).scalars().first()
+    if not pm:
+        logger.warning("PayHere payment method not configured/active")
+        return None
+    cfg = pm.config or {}
+    merchant_id = (cfg.get("merchant_id") or "").strip()
+    merchant_secret = (cfg.get("secret") or cfg.get("merchant_secret") or "").strip()
+    sandbox = bool(cfg.get("sandbox"))
+    if not (merchant_id and merchant_secret):
+        logger.warning("PayHere missing merchant_id/secret in PaymentMethod.config")
+        return None
+    endpoint = "https://sandbox.payhere.lk/pay/checkout" if sandbox else "https://www.payhere.lk/pay/checkout"
+    amount_str = f"{order.total:.2f}"
+    currency = "LKR"
+    # PayHere request hash:
+    #   md5( merchant_id + order_id + amount(2dp) + currency + UPPER(md5(secret)) ).upper()
+    secret_md5 = hashlib.md5(merchant_secret.encode("utf-8")).hexdigest().upper()
+    raw = f"{merchant_id}{order.order_number}{amount_str}{currency}{secret_md5}"
+    sig = hashlib.md5(raw.encode("utf-8")).hexdigest().upper()
+    # Public URLs — derive from frontend origin (Origin/Referer header).
+    base = origin or os.environ.get("PUBLIC_BASE_URL", "")
+    if base and base.endswith("/"):
+        base = base.rstrip("/")
+    return_url = f"{base}/order/{order.order_number}" if base else f"/order/{order.order_number}"
+    cancel_url = f"{base}/checkout?cancelled=1" if base else "/checkout?cancelled=1"
+    notify_url = f"{base}/api/payhere/notify" if base else "/api/payhere/notify"
+    # Customer name → first/last best-effort split
+    name = (order.customer_name or payload.customer_name or "Customer").strip()
+    parts = name.split(maxsplit=1)
+    first_name = parts[0]
+    last_name = parts[1] if len(parts) > 1 else ""
+    items_label = f"Order {order.order_number}"
+    return {
+        "endpoint": endpoint,
+        "fields": {
+            "merchant_id": merchant_id,
+            "return_url": return_url,
+            "cancel_url": cancel_url,
+            "notify_url": notify_url,
+            "order_id": order.order_number,
+            "items": items_label,
+            "currency": currency,
+            "amount": amount_str,
+            "first_name": first_name,
+            "last_name": last_name,
+            "email": (order.customer_email or payload.customer_email or ""),
+            "phone": (order.customer_phone or payload.customer_phone or ""),
+            "address": (order.shipping_address or payload.shipping_address or ""),
+            "city": (order.shipping_city or payload.shipping_city or ""),
+            "country": "Sri Lanka",
+            "hash": sig,
+        },
+    }
+
+
+
+
+async def _log_notification(db, channel, to, subject, body, order_id=None,
+                            status="mocked", provider=None, event_key=None,
+                            ctx=None):
     """Best-effort live dispatch + structured log row.
+
+    If `event_key` is provided, the merchant's NotificationTemplate for that
+    event + channel is loaded and rendered (placeholders like {{order_number}}
+    are substituted from `ctx`). If no active template exists, the hardcoded
+    `subject` / `body` passed in act as the fallback.
 
     If the merchant has configured a default provider for `channel` (via
     Marketing → Email/SMS Setup), the message is actually sent and the row's
     status reflects the result. If no provider is configured, status='mocked'
     so order flow keeps working in dev.
     """
+    from dispatcher import dispatch, render_template_for_event
+    # Resolve final subject/body from configured template (if any)
+    if event_key:
+        try:
+            subject, body = await render_template_for_event(
+                db, event_key, channel, ctx or {}, subject, body,
+            )
+        except Exception as e:
+            logger.warning("_log_notification template render failed: %s", e)
     if to and status == "mocked":
         try:
-            from dispatcher import dispatch
             sent_status, sent_provider = await dispatch(db, channel, to, subject, body)
             status = sent_status
             provider = sent_provider
@@ -240,9 +329,13 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
     # Resolve payment status by method.
     # Card / instant methods are auto-paid AND auto-completed (final state).
     # COD / pending gateways stay in pending until manually marked received.
+    # PayHere is NOT instant-paid here — it only becomes 'paid' after the
+    # webhook (/api/payhere/notify) verifies the signed callback.
     instant_paid = {"cash", "card_pos", "card", "stripe", "koko", "mintpay", "koko_pos", "mintpay_pos"}
     if payload.payment_method in instant_paid:
         payment_status = "paid"; order_status = "completed"
+    elif payload.payment_method == "payhere":
+        payment_status = "pending"; order_status = "pending_payment"
     else:
         payment_status = "pending"; order_status = "pending"
 
@@ -323,18 +416,44 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
                                  created_by=user.user_id if user else None))
     # Build receipt URL for SMS
     receipt_path = f"/receipt/{order.order_number}"
+    notif_ctx = {
+        "order_number": order.order_number,
+        "customer_name": payload.customer_name or customer.name or "",
+        "first_name": (payload.customer_name or customer.name or "").split()[0] if (payload.customer_name or customer.name) else "",
+        "total": f"{total:.2f}",
+        "subtotal": f"{subtotal:.2f}",
+        "discount": f"{discount:.2f}",
+        "shipping": f"{shipping_fee:.2f}",
+        "tracking_url": receipt_path,
+        "receipt_url": receipt_path,
+        "brand_name": (await _resolve_brand_name(db)),
+        "payment_method": payload.payment_method,
+    }
     if payload.customer_email:
         await _log_notification(db, "email", payload.customer_email,
                                  f"Order {order.order_number} confirmed",
                                  f"Thank you {payload.customer_name}! Order {order.order_number} total {total:.2f}. Receipt: {receipt_path}",
-                                 order.id)
+                                 order.id, event_key="order_placed", ctx=notif_ctx)
     if payload.customer_phone:
         await _log_notification(db, "sms", payload.customer_phone, "Order Confirmed",
                                  f"Order {order.order_number} confirmed. Total {total:.2f}. Receipt: {receipt_path}",
-                                 order.id)
+                                 order.id, event_key="order_placed", ctx=notif_ctx)
     await db.commit()
     await db.refresh(order)
-    return await _build_order_response(order, db)
+    response_data = await _build_order_response(order, db)
+    # If this order used PayHere, attach the hidden-form payload so the
+    # frontend can auto-redirect the customer to PayHere's hosted checkout.
+    if payload.payment_method == "payhere":
+        try:
+            origin = request.headers.get("origin") or request.headers.get("referer") or ""
+            if origin and origin.endswith("/"):
+                origin = origin.rstrip("/")
+            ph_payload = await _build_payhere_redirect(db, order, payload, origin)
+            if ph_payload:
+                response_data["payhere_redirect"] = ph_payload
+        except Exception as e:
+            logger.exception("payhere redirect build failed: %s", e)
+    return response_data
 
 
 @router.get("/orders/{order_number}")
@@ -421,8 +540,19 @@ async def update_order_status(oid: str, payload: OrderStatusIn, db: AsyncSession
         new_status = "completed"
     o.status = new_status
     if o.customer_email:
+        ctx = {"order_number": o.order_number, "customer_name": o.customer_name or "",
+               "total": f"{o.total:.2f}", "tracking_url": f"/receipt/{o.order_number}",
+               "brand_name": await _resolve_brand_name(db)}
+        event_map = {"shipped": "order_shipped", "delivered": "order_delivered",
+                     "completed": "order_delivered", "cancelled": "order_cancelled",
+                     "refunded": "order_refunded"}
         await _log_notification(db, "email", o.customer_email, f"Order {o.order_number} {new_status}",
-                                 f"Your order {o.order_number} status: {new_status}.", o.id)
+                                 f"Your order {o.order_number} status: {new_status}.", o.id,
+                                 event_key=event_map.get(new_status), ctx=ctx)
+        if o.customer_phone:
+            await _log_notification(db, "sms", o.customer_phone, None,
+                                     f"Order {o.order_number} is now {new_status}.",
+                                     o.id, event_key=event_map.get(new_status), ctx=ctx)
     await db.commit()
     return {"ok": True, "status": o.status}
 
@@ -466,8 +596,12 @@ async def mark_cash_received(oid: str, db: AsyncSession = Depends(get_db), user:
                          source_kind="order", source_id=o.id,
                          notes=f"COD banked · {o.order_number}", created_by=user.user_id))
     if o.customer_email:
+        ctx = {"order_number": o.order_number, "customer_name": o.customer_name or "",
+               "total": f"{o.total:.2f}", "tracking_url": f"/receipt/{o.order_number}",
+               "brand_name": await _resolve_brand_name(db)}
         await _log_notification(db, "email", o.customer_email, f"Order {o.order_number} completed",
-                                 f"Cash received. Order {o.order_number} is now complete. Thank you.", o.id)
+                                 f"Cash received. Order {o.order_number} is now complete. Thank you.", o.id,
+                                 event_key="order_paid", ctx=ctx)
     await db.commit()
     return {"ok": True, "status": o.status, "payment_status": o.payment_status,
             "credited_account_id": target.id, "credited_account_name": target.name}
