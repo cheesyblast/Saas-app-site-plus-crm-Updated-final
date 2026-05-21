@@ -8,7 +8,7 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Plus, Trash2, Pencil, Megaphone, Mail, MessageSquare, FileText, Bell, Send } from "lucide-react";
+import { Plus, Trash2, Pencil, Megaphone, Mail, MessageSquare, FileText, Bell, Send, ShoppingCart, Sparkles, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { IntegrationTab } from "./Settings";
 import Notifications from "./Notifications";
@@ -22,6 +22,9 @@ const EVENT_KEYS = [
   { key: "order_delivered", label: "Order Delivered" },
   { key: "order_cancelled", label: "Order Cancelled" },
   { key: "order_refunded",  label: "Order Refunded" },
+  { key: "abandoned_cart",  label: "Abandoned Cart" },
+  { key: "marketing_promo", label: "Marketing Promo" },
+  { key: "winback",         label: "Win-back" },
   { key: "marketing_blast", label: "Marketing Blast (manual)" },
 ];
 
@@ -40,6 +43,7 @@ export default function Marketing() {
           <TabsTrigger value="sms"       data-testid="mkt-tab-sms"       className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><MessageSquare className="h-3 w-3 mr-2"/>SMS Setup</TabsTrigger>
           <TabsTrigger value="templates" data-testid="mkt-tab-templates" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><FileText className="h-3 w-3 mr-2"/>Templates</TabsTrigger>
           <TabsTrigger value="bulk"      data-testid="mkt-tab-bulk"      className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Send className="h-3 w-3 mr-2"/>Bulk Send</TabsTrigger>
+          <TabsTrigger value="abandon"   data-testid="mkt-tab-abandon"   className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><ShoppingCart className="h-3 w-3 mr-2"/>Abandoned Carts</TabsTrigger>
           <TabsTrigger value="logs"      data-testid="mkt-tab-logs"      className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Bell className="h-3 w-3 mr-2"/>Logs</TabsTrigger>
         </TabsList>
 
@@ -48,6 +52,7 @@ export default function Marketing() {
         <TabsContent value="sms"       className="mt-6"><IntegrationTab kind="sms"/></TabsContent>
         <TabsContent value="templates" className="mt-6"><TemplatesPanel/></TabsContent>
         <TabsContent value="bulk"      className="mt-6"><BulkSendPanel/></TabsContent>
+        <TabsContent value="abandon"   className="mt-6"><AbandonmentPanel/></TabsContent>
         <TabsContent value="logs"      className="mt-6"><Notifications/></TabsContent>
       </Tabs>
     </div>
@@ -157,12 +162,23 @@ function TemplatesPanel() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="font-heading uppercase tracking-widest text-sm">Notification Templates</h2>
           <p className="text-xs text-zinc-500 mt-1">Reusable email + SMS templates per order event. Use placeholders like <code className="text-zinc-300">{`{{customer_name}}`}</code>, <code className="text-zinc-300">{`{{order_number}}`}</code>, <code className="text-zinc-300">{`{{total}}`}</code>, <code className="text-zinc-300">{`{{tracking_url}}`}</code>, <code className="text-zinc-300">{`{{brand_name}}`}</code>.</p>
         </div>
-        <Button onClick={() => setEditing({ ...emptyTemplate })} data-testid="template-new" className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold gap-2"><Plus className="h-3 w-3"/> New Template</Button>
+        <div className="flex gap-2 flex-wrap">
+          <Button data-testid="template-install-library" onClick={async () => {
+              try {
+                const { data } = await api.post("/admin/templates-library/install");
+                toast.success(`Installed ${data.installed} prebuilt templates${data.skipped ? `, skipped ${data.skipped}` : ""}`);
+                load();
+              } catch { toast.error("Could not install"); }
+            }}
+            className="bg-zinc-800 hover:bg-zinc-700 rounded-none uppercase tracking-widest text-xs gap-2 font-bold"
+          ><Sparkles className="h-3 w-3"/> Install Prebuilt Templates</Button>
+          <Button onClick={() => setEditing({ ...emptyTemplate })} data-testid="template-new" className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold gap-2"><Plus className="h-3 w-3"/> New Template</Button>
+        </div>
       </div>
 
       <div className="grid gap-3">
@@ -356,6 +372,138 @@ function BulkSendPanel() {
             {optInOnly && <> who opted in for marketing</>}.
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+
+
+// ====================== ABANDONED CARTS ======================
+
+function AbandonmentPanel() {
+  const [cfg, setCfg] = useState(null);
+  const [sessions, setSessions] = useState([]);
+  const [state, setState] = useState("open");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    try {
+      const { data: company } = await api.get("/company");
+      setCfg({
+        enabled: !!company.cart_recovery_enabled,
+        after_min: company.cart_recovery_after_min ?? 60,
+        channels: (company.cart_recovery_channels || "email,sms").split(",").map(s => s.trim()),
+      });
+      const { data: rows } = await api.get(`/admin/cart-sessions?state=${state}`);
+      setSessions(rows);
+    } catch (e) { console.warn(e); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [state]);
+
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put("/admin/company", {
+        cart_recovery_enabled: cfg.enabled,
+        cart_recovery_after_min: Number(cfg.after_min) || 60,
+        cart_recovery_channels: cfg.channels.join(","),
+      });
+      toast.success("Saved");
+      load();
+    } catch { toast.error("Save failed"); }
+    finally { setBusy(false); }
+  };
+
+  const runNow = async () => {
+    try {
+      const { data } = await api.post("/admin/cart-sessions/run-worker");
+      const sent = (data.sent_email || 0) + (data.sent_sms || 0);
+      if (sent > 0) toast.success(`Sent ${data.sent_email} emails, ${data.sent_sms} SMS`);
+      else toast.message(`Checked ${data.checked || 0} carts — nothing to send right now`);
+      load();
+    } catch { toast.error("Could not run worker"); }
+  };
+
+  if (!cfg) return <div className="text-zinc-500">Loading…</div>;
+  const toggleChannel = (ch) => setCfg({ ...cfg, channels: cfg.channels.includes(ch) ? cfg.channels.filter(c => c !== ch) : [...cfg.channels, ch] });
+
+  return (
+    <div className="space-y-6">
+      <div className="border border-zinc-800 bg-zinc-950 p-5 space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-heading uppercase tracking-widest text-sm">Cart Abandonment Recovery</h2>
+            <p className="text-xs text-zinc-500 mt-1 max-w-2xl">Customers who reach checkout and start typing their email or phone but don't pay are tracked server-side. After the threshold elapses we automatically send the <code className="text-zinc-300">abandoned_cart</code> template via your default email + SMS providers.</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <Label className="text-xs uppercase tracking-widest text-zinc-400">Enabled</Label>
+            <Switch checked={cfg.enabled} onCheckedChange={(v) => setCfg({ ...cfg, enabled: v })} data-testid="abandon-toggle"/>
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <Label className="text-xs uppercase tracking-widest text-zinc-400">Wait time (minutes)</Label>
+            <Input type="number" min={5} value={cfg.after_min} onChange={(e) => setCfg({ ...cfg, after_min: e.target.value })} className="bg-zinc-900 border-zinc-800 rounded-none mt-1" data-testid="abandon-min"/>
+            <p className="text-[10px] text-zinc-500 mt-1">Typical: 30–60 min for fashion, 2–4 h for high-ticket items.</p>
+          </div>
+          <div>
+            <Label className="text-xs uppercase tracking-widest text-zinc-400">Channels</Label>
+            <div className="mt-2 flex gap-2 flex-wrap">
+              {["email", "sms"].map((ch) => (
+                <button key={ch} type="button"
+                  className={`px-3 py-1.5 text-xs uppercase tracking-widest border ${cfg.channels.includes(ch) ? "bg-zinc-800 border-zinc-600 text-white" : "bg-transparent border-zinc-800 text-zinc-500"}`}
+                  onClick={() => toggleChannel(ch)}
+                  data-testid={`abandon-ch-${ch}`}
+                >
+                  {ch === "email" ? <Mail className="h-3 w-3 inline mr-1"/> : <MessageSquare className="h-3 w-3 inline mr-1"/>}{ch}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] text-zinc-500 mt-1">SMS fires only if email is unavailable for that customer.</p>
+          </div>
+          <div className="flex flex-col justify-end gap-2">
+            <Button onClick={save} disabled={busy} className="rounded-none bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] font-bold uppercase tracking-widest" data-testid="abandon-save">Save settings</Button>
+            <Button onClick={runNow} variant="outline" className="rounded-none border-zinc-700 bg-transparent uppercase tracking-widest text-xs gap-2" data-testid="abandon-run-now"><RefreshCw className="h-3 w-3"/> Run worker now</Button>
+          </div>
+        </div>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="font-heading uppercase tracking-widest text-xs text-zinc-400">Recent carts</h3>
+          <div className="flex gap-1">
+            {["open", "reminded", "converted", "all"].map(s => (
+              <button key={s} onClick={() => setState(s)} className={`text-[10px] uppercase tracking-widest px-2 py-1 border ${state === s ? "bg-zinc-800 border-zinc-600" : "bg-transparent border-zinc-900 text-zinc-500"}`} data-testid={`abandon-state-${s}`}>{s}</button>
+            ))}
+          </div>
+        </div>
+        <div className="overflow-x-auto border border-zinc-800">
+          <table className="w-full text-xs">
+            <thead className="bg-zinc-900 text-zinc-500 uppercase tracking-widest text-[10px]">
+              <tr><th className="text-left p-2">Customer</th><th className="text-left p-2">Items</th><th className="text-right p-2">Est. total</th><th className="text-left p-2">Last seen</th><th className="text-left p-2">Status</th></tr>
+            </thead>
+            <tbody>
+              {sessions.map(s => (
+                <tr key={s.id} className="border-t border-zinc-900">
+                  <td className="p-2">
+                    <div className="text-white">{s.name || "—"}</div>
+                    <div className="font-mono text-zinc-500 text-[10px]">{s.email || s.phone || "—"}</div>
+                  </td>
+                  <td className="p-2 text-zinc-400">{s.items_count}</td>
+                  <td className="p-2 text-right font-mono">{formatPrice(s.estimated_total || 0)}</td>
+                  <td className="p-2 text-zinc-500">{s.last_seen_at ? new Date(s.last_seen_at).toLocaleString() : "—"}</td>
+                  <td className="p-2">
+                    {s.converted_at ? <span className="text-emerald-400 uppercase tracking-widest text-[10px]">converted</span>
+                      : s.reminded_at ? <span className="text-amber-400 uppercase tracking-widest text-[10px]">reminded · {s.reminded_channel}</span>
+                      : <span className="text-zinc-400 uppercase tracking-widest text-[10px]">open</span>}
+                  </td>
+                </tr>
+              ))}
+              {sessions.length === 0 && <tr><td colSpan={5} className="p-8 text-center text-zinc-600">No carts in this state.</td></tr>}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

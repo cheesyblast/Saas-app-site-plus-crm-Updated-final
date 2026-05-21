@@ -85,6 +85,26 @@ export default function Checkout() {
   const cities = useMemo(() => byDistrict[form.shipping_district] || [], [form.shipping_district, byDistrict]);
   const total = subtotal_after_discount + shippingFee;
 
+  // Cart-abandonment tracking: as soon as the customer has typed an email or
+  // phone, debounce-POST /api/cart/sync so the worker can chase them if
+  // they bail before paying. We skip the call until at least one identifier
+  // is present (no point recording anonymous carts).
+  useEffect(() => {
+    if (items.length === 0) return;
+    if (!form.customer_email && !form.customer_phone) return;
+    const t = setTimeout(() => {
+      api.post("/cart/sync", {
+        customer_name: form.customer_name || null,
+        customer_email: form.customer_email || null,
+        customer_phone: form.customer_phone || null,
+        items: items.map((i) => ({ variant_id: i.variant_id, quantity: i.quantity,
+                                    name: i.name, price: i.effective_price ?? i.price })),
+        estimated_total: total,
+      }).catch(() => { /* silent — recovery is best-effort */ });
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [form.customer_email, form.customer_phone, form.customer_name, items, total]);
+
   const placeOrder = async () => {
     if (items.length === 0) return toast.error("Cart is empty");
     if (!form.customer_name || !form.customer_phone || !form.shipping_address || !form.shipping_district || !form.shipping_city) {
@@ -99,13 +119,17 @@ export default function Checkout() {
         items: items.map((i) => ({ variant_id: i.variant_id, quantity: i.quantity })),
         source: "online",
       });
-      clear();
       // PayHere redirect: backend returns a signed payload; we POST a hidden
-      // form to the PayHere hosted checkout. Browser navigates away.
+      // form to PayHere's hosted checkout. Browser navigates away.
+      // We submit FIRST and only clear the cart after, so the customer
+      // doesn't see a 'Cart is empty' flash during the navigation.
       if (data.payhere_redirect) {
         _submitPayHereForm(data.payhere_redirect);
+        // Clear after a tick so the browser has time to follow the redirect.
+        setTimeout(() => clear(), 100);
         return;
       }
+      clear();
       nav(`/order/${data.order_number}`);
     } catch (e) {
       toast.error(formatApiErrorDetail(e?.response?.data?.detail) || "Order failed");

@@ -94,6 +94,28 @@ COLUMN_MIGRATIONS = [
     ('integration_settings', 'tenant_id', 'VARCHAR(64)'),
     ('marketing_campaigns', 'tenant_id', 'VARCHAR(64)'),
     ('payroll', 'tenant_id', 'VARCHAR(64)'),
+    # ---- Iter12: PayHere + templates ----
+    ('notification_templates', 'body_html', 'TEXT'),
+    # ---- Iter13: Barcode + header/footer + receipt + cart recovery ----
+    ('variants', 'barcode', 'VARCHAR(64)'),
+    ('company_settings', 'header_layout', "VARCHAR(32) DEFAULT 'classic'"),
+    ('company_settings', 'header_bg_color', 'VARCHAR(16)'),
+    ('company_settings', 'header_text_color', 'VARCHAR(16)'),
+    ('company_settings', 'header_hover_color', 'VARCHAR(16)'),
+    ('company_settings', 'footer_layout', "VARCHAR(32) DEFAULT 'columns'"),
+    ('company_settings', 'footer_bg_color', 'VARCHAR(16)'),
+    ('company_settings', 'footer_text_color', 'VARCHAR(16)'),
+    ('company_settings', 'footer_hover_color', 'VARCHAR(16)'),
+    ('company_settings', 'receipt_size', "VARCHAR(16) DEFAULT '80mm'"),
+    ('company_settings', 'receipt_header_text', 'TEXT'),
+    ('company_settings', 'receipt_footer_text', 'TEXT'),
+    ('company_settings', 'receipt_show_logo', 'BOOLEAN DEFAULT TRUE'),
+    ('company_settings', 'receipt_show_qr', 'BOOLEAN DEFAULT TRUE'),
+    ('company_settings', 'receipt_show_barcode', 'BOOLEAN DEFAULT FALSE'),
+    ('company_settings', 'receipt_show_tax', 'BOOLEAN DEFAULT FALSE'),
+    ('company_settings', 'cart_recovery_enabled', 'BOOLEAN DEFAULT FALSE'),
+    ('company_settings', 'cart_recovery_after_min', 'INTEGER DEFAULT 60'),
+    ('company_settings', 'cart_recovery_channels', "VARCHAR(32) DEFAULT 'email,sms'"),
 ]
 
 
@@ -334,6 +356,10 @@ from routes import (
     customer_export as _customer_export,
     super_admin as _super_admin,
     payhere as _payhere,
+    seo as _seo,
+    templates_library as _templates_library,
+    cart_recovery as _cart_recovery,
+    barcode as _barcode,
 )
 
 for _mod in (
@@ -341,11 +367,26 @@ for _mod in (
     _stores, _shipping_payments, _orders, _customers, _coupons, _expenses,
     _payroll, _staff, _reports, _marketing, _pages, _health, _suppliers,
     _income, _cash_accounts, _receipt, _csv_import, _discounts, _customer_export,
-    _super_admin, _payhere,
+    _super_admin, _payhere, _seo, _templates_library, _cart_recovery, _barcode,
 ):
     api.include_router(_mod.router)
 
 app.include_router(api)
+# Also mount SEO routes at the bare root so deployments behind Nginx can
+# serve them at https://shop.example/sitemap.xml without a rewrite rule.
+# (In the preview/Kubernetes environment only /api/* reaches the backend,
+# so use /api/sitemap.xml + /api/robots.txt; in production add an Nginx
+# `location = /sitemap.xml { proxy_pass ... /api/sitemap.xml; }` block.)
+app.include_router(_seo.router)
+
+
+@app.on_event("startup")
+async def _start_cart_recovery_worker():
+    """Spawn the cart-abandonment background loop after FastAPI is up."""
+    try:
+        _cart_recovery.start_worker(app)
+    except Exception as e:
+        logger.warning("could not start cart recovery worker: %s", e)
 
 app.add_middleware(
     CORSMiddleware,

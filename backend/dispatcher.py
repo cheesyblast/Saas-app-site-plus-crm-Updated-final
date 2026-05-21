@@ -67,13 +67,14 @@ async def render_template_for_event(
     ctx: dict,
     fallback_subject: Optional[str] = None,
     fallback_body: Optional[str] = None,
-) -> Tuple[str, str]:
-    """Look up the merchant's default active NotificationTemplate for the given
-    event_key + channel and render placeholders. Falls back to the supplied
-    hardcoded subject/body if no active template exists, so order flow keeps
-    working out of the box.
+) -> Tuple[str, str, Optional[str]]:
+    """Look up the merchant's default active NotificationTemplate for the
+    given event_key + channel and render placeholders. Falls back to the
+    supplied hardcoded subject/body if no active template exists.
 
-    Returns: (subject, body)
+    Returns: (subject, body_plain, body_html_or_None)
+    Body HTML is only populated for `channel == 'email'` templates that
+    have a body_html field set (e.g. the "Professional" prebuilt ones).
     """
     rows = (await db.execute(
         select(M.NotificationTemplate).where(
@@ -91,20 +92,30 @@ async def render_template_for_event(
         tpl = rows[0]
     if tpl is None:
         return (_render_placeholders(fallback_subject, ctx),
-                _render_placeholders(fallback_body, ctx))
+                _render_placeholders(fallback_body, ctx), None)
     subject = _render_placeholders(tpl.subject or fallback_subject, ctx)
     body = _render_placeholders(tpl.body or fallback_body or "", ctx)
-    return subject, body
+    body_html = None
+    if channel == "email" and getattr(tpl, "body_html", None):
+        body_html = _render_placeholders(tpl.body_html, ctx)
+    return subject, body, body_html
 
 
-def _send_email_smtp(cfg: dict, to: str, subject: str, body: str) -> Tuple[bool, str]:
-    """Generic SMTP send. cfg keys: host, port, username, password, from, use_tls (bool)."""
+def _send_email_smtp(cfg: dict, to: str, subject: str, body: str, body_html: Optional[str] = None) -> Tuple[bool, str]:
+    """Generic SMTP send. cfg keys: host, port, username, password, from, use_tls (bool).
+    Sends multipart/alternative when body_html is provided."""
     host = cfg.get("host"); port = int(cfg.get("port") or 587)
     user = cfg.get("username"); pwd = cfg.get("password")
     sender = cfg.get("from") or user
     if not (host and sender):
         return False, "Missing host/from"
-    msg = MIMEText(body, "plain", "utf-8")
+    if body_html:
+        from email.mime.multipart import MIMEMultipart
+        msg = MIMEMultipart("alternative")
+        msg.attach(MIMEText(body or "", "plain", "utf-8"))
+        msg.attach(MIMEText(body_html, "html", "utf-8"))
+    else:
+        msg = MIMEText(body, "plain", "utf-8")
     msg["Subject"] = subject or ""
     msg["From"] = sender
     msg["To"] = to
@@ -126,11 +137,14 @@ def _send_email_smtp(cfg: dict, to: str, subject: str, body: str) -> Tuple[bool,
         return False, f"smtp: {e}"
 
 
-def _send_email_sendgrid(cfg: dict, to: str, subject: str, body: str) -> Tuple[bool, str]:
+def _send_email_sendgrid(cfg: dict, to: str, subject: str, body: str, body_html: Optional[str] = None) -> Tuple[bool, str]:
     """SendGrid v3 mail/send. cfg keys: api_key, from."""
     api_key = cfg.get("api_key"); sender = cfg.get("from")
     if not (api_key and sender):
         return False, "Missing api_key/from"
+    content = [{"type": "text/plain", "value": body or ""}]
+    if body_html:
+        content.append({"type": "text/html", "value": body_html})
     try:
         r = httpx.post(
             "https://api.sendgrid.com/v3/mail/send",
@@ -139,7 +153,7 @@ def _send_email_sendgrid(cfg: dict, to: str, subject: str, body: str) -> Tuple[b
                 "personalizations": [{"to": [{"email": to}]}],
                 "from": {"email": sender},
                 "subject": subject or "",
-                "content": [{"type": "text/plain", "value": body}],
+                "content": content,
             },
             timeout=15,
         )
@@ -150,7 +164,7 @@ def _send_email_sendgrid(cfg: dict, to: str, subject: str, body: str) -> Tuple[b
         return False, f"sendgrid: {e}"
 
 
-def _send_email_brevo(cfg: dict, to: str, subject: str, body: str) -> Tuple[bool, str]:
+def _send_email_brevo(cfg: dict, to: str, subject: str, body: str, body_html: Optional[str] = None) -> Tuple[bool, str]:
     """Brevo (formerly Sendinblue). Supports both:
       - v3 REST API: cfg.api_key starts with 'xkeysib-' (preferred).
       - SMTP relay: cfg.api_key starts with 'xsmtpsib-' OR cfg.smtp_user is set
@@ -172,18 +186,21 @@ def _send_email_brevo(cfg: dict, to: str, subject: str, body: str) -> Tuple[bool
             "from": sender,
             "use_tls": True,
         }
-        ok, msg = _send_email_smtp(smtp_cfg, to, subject, body)
+        ok, msg = _send_email_smtp(smtp_cfg, to, subject, body, body_html)
         return ok, f"brevo-smtp: {msg}"
     try:
+        payload = {
+            "sender": {"email": sender, "name": cfg.get("from_name") or sender},
+            "to": [{"email": to}],
+            "subject": subject or "",
+            "textContent": body or "",
+        }
+        if body_html:
+            payload["htmlContent"] = body_html
         r = httpx.post(
             "https://api.brevo.com/v3/smtp/email",
             headers={"api-key": api_key, "Content-Type": "application/json", "accept": "application/json"},
-            json={
-                "sender": {"email": sender, "name": cfg.get("from_name") or sender},
-                "to": [{"email": to}],
-                "subject": subject or "",
-                "textContent": body,
-            },
+            json=payload,
             timeout=15,
         )
         if r.status_code in (200, 201, 202):
@@ -235,8 +252,14 @@ def _send_sms_notify_lk(cfg: dict, to: str, body: str) -> Tuple[bool, str]:
         return False, f"notify.lk: {e}"
 
 
-async def dispatch(db: AsyncSession, channel: str, to: str, subject: Optional[str], body: str) -> Tuple[str, str]:
+async def dispatch(db: AsyncSession, channel: str, to: str,
+                   subject: Optional[str], body: str,
+                   body_html: Optional[str] = None) -> Tuple[str, str]:
     """Pick the merchant's configured provider for `channel` and send.
+
+    If `body_html` is provided AND channel == 'email', the underlying
+    provider sends a multipart message so the customer sees a rich HTML
+    email with a plain-text fallback. Otherwise a plain-text email is sent.
 
     Returns (status, provider_name) — status is one of:
         sent      — provider returned 2xx
@@ -261,11 +284,11 @@ async def dispatch(db: AsyncSession, channel: str, to: str, subject: Optional[st
     try:
         if channel == "email":
             if provider == "smtp":
-                ok, msg = _send_email_smtp(cfg, to, subject or "", body)
+                ok, msg = _send_email_smtp(cfg, to, subject or "", body, body_html)
             elif provider == "sendgrid":
-                ok, msg = _send_email_sendgrid(cfg, to, subject or "", body)
+                ok, msg = _send_email_sendgrid(cfg, to, subject or "", body, body_html)
             elif provider == "brevo":
-                ok, msg = _send_email_brevo(cfg, to, subject or "", body)
+                ok, msg = _send_email_brevo(cfg, to, subject or "", body, body_html)
             else:
                 return "failed", f"unknown:{provider}"
         elif channel == "sms":

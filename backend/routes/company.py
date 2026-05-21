@@ -58,6 +58,27 @@ def _company_dict(cs: M.CompanySettings):
         "header_logo_height": cs.header_logo_height or 32,
         "footer_logo_height": cs.footer_logo_height or 40,
         "logo_display_mode": cs.logo_display_mode or "auto",
+        # Header / Footer layout
+        "header_layout": cs.header_layout or "classic",
+        "header_bg_color": cs.header_bg_color,
+        "header_text_color": cs.header_text_color,
+        "header_hover_color": cs.header_hover_color,
+        "footer_layout": cs.footer_layout or "columns",
+        "footer_bg_color": cs.footer_bg_color,
+        "footer_text_color": cs.footer_text_color,
+        "footer_hover_color": cs.footer_hover_color,
+        # Receipt
+        "receipt_size": cs.receipt_size or "80mm",
+        "receipt_header_text": cs.receipt_header_text,
+        "receipt_footer_text": cs.receipt_footer_text,
+        "receipt_show_logo": bool(cs.receipt_show_logo),
+        "receipt_show_qr": bool(cs.receipt_show_qr),
+        "receipt_show_barcode": bool(cs.receipt_show_barcode),
+        "receipt_show_tax": bool(cs.receipt_show_tax),
+        # Cart abandonment
+        "cart_recovery_enabled": bool(cs.cart_recovery_enabled),
+        "cart_recovery_after_min": cs.cart_recovery_after_min or 60,
+        "cart_recovery_channels": cs.cart_recovery_channels or "email,sms",
     }
 
 
@@ -91,6 +112,27 @@ class CompanyUpdate(BaseModel):
     header_logo_height: Optional[int] = None
     footer_logo_height: Optional[int] = None
     logo_display_mode: Optional[str] = None
+    # Header / Footer layout
+    header_layout: Optional[str] = None
+    header_bg_color: Optional[str] = None
+    header_text_color: Optional[str] = None
+    header_hover_color: Optional[str] = None
+    footer_layout: Optional[str] = None
+    footer_bg_color: Optional[str] = None
+    footer_text_color: Optional[str] = None
+    footer_hover_color: Optional[str] = None
+    # Receipt template
+    receipt_size: Optional[str] = None
+    receipt_header_text: Optional[str] = None
+    receipt_footer_text: Optional[str] = None
+    receipt_show_logo: Optional[bool] = None
+    receipt_show_qr: Optional[bool] = None
+    receipt_show_barcode: Optional[bool] = None
+    receipt_show_tax: Optional[bool] = None
+    # Cart abandonment
+    cart_recovery_enabled: Optional[bool] = None
+    cart_recovery_after_min: Optional[int] = None
+    cart_recovery_channels: Optional[str] = None
 
 
 @router.get("/company")

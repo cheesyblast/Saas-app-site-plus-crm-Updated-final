@@ -10,11 +10,12 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Trash2, Plus, Upload, Save, Mail, MessageSquare, Building2, KeyRound, Search, Bell, UserCog, DollarSign, Palette, Lock } from "lucide-react";
+import { Trash2, Plus, Upload, Save, Mail, MessageSquare, Building2, KeyRound, Search, Bell, UserCog, DollarSign, Palette, Lock, Receipt, LayoutTemplate } from "lucide-react";
 import { toast } from "sonner";
 import { formatApiErrorDetail } from "@/lib/errors";
 import Staff from "./Staff";
 import Payroll from "./Payroll";
+import { preprocessImage, humanFileSize } from "@/lib/image";
 
 const CURRENCIES = ["LKR", "USD", "EUR", "GBP", "INR", "AUD"];
 
@@ -41,6 +42,8 @@ export default function Settings() {
         <TabsList className="bg-zinc-900 border border-zinc-800 rounded-none p-0 flex w-full overflow-x-auto">
           <TabsTrigger value="company" data-testid="settings-tab-company" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Building2 className="h-3 w-3 mr-2"/>Company</TabsTrigger>
           <TabsTrigger value="branding" data-testid="settings-tab-branding" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Palette className="h-3 w-3 mr-2"/>Branding</TabsTrigger>
+          <TabsTrigger value="layout" data-testid="settings-tab-layout" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><LayoutTemplate className="h-3 w-3 mr-2"/>Header / Footer</TabsTrigger>
+          <TabsTrigger value="receipt" data-testid="settings-tab-receipt" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Receipt className="h-3 w-3 mr-2"/>Receipt</TabsTrigger>
           <TabsTrigger value="seo" data-testid="settings-tab-seo" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Search className="h-3 w-3 mr-2"/>SEO &amp; Analytics</TabsTrigger>
           {isOwner && <TabsTrigger value="auth" data-testid="settings-tab-auth" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><Lock className="h-3 w-3 mr-2"/>Authentication</TabsTrigger>}
           <TabsTrigger value="account" data-testid="settings-tab-account" className="flex-1 min-w-fit rounded-none data-[state=active]:bg-zinc-800 uppercase tracking-widest text-xs"><KeyRound className="h-3 w-3 mr-2"/>My Account</TabsTrigger>
@@ -50,6 +53,8 @@ export default function Settings() {
 
         <TabsContent value="company" className="mt-6"><CompanyTab company={company} refresh={refresh}/></TabsContent>
         <TabsContent value="branding" className="mt-6"><BrandingTab company={company} refresh={refresh}/></TabsContent>
+        <TabsContent value="layout" className="mt-6"><LayoutTab company={company} refresh={refresh}/></TabsContent>
+        <TabsContent value="receipt" className="mt-6"><ReceiptTab company={company} refresh={refresh}/></TabsContent>
         <TabsContent value="seo" className="mt-6"><SeoTab company={company} refresh={refresh}/></TabsContent>
         {isOwner && <TabsContent value="auth" className="mt-6"><AuthTab company={company} refresh={refresh}/></TabsContent>}
         <TabsContent value="account" className="mt-6"><AccountTab user={user}/></TabsContent>
@@ -67,11 +72,15 @@ function SeoTab({ company, refresh }) {
   const [busy, setBusy] = useState(false);
 
   const uploadOg = async (file) => {
-    if (file.size > 1024 * 1024) return toast.error("Max 1MB");
-    const data_base64 = await fileToBase64(file);
-    const { data } = await api.post("/admin/media", { data_base64, mime_type: file.type, filename: file.name });
+    let processed;
+    try {
+      processed = await preprocessImage(file, { maxBytes: 1.5 * 1024 * 1024, maxDim: 1600 });
+    } catch (e) { return toast.error(e?.message || "Could not read image"); }
+    const { data } = await api.post("/admin/media", {
+      data_base64: processed.dataBase64, mime_type: processed.mimeType, filename: file.name,
+    });
     set("og_image_id", data.id);
-    toast.success("Cover image uploaded");
+    toast.success(`Cover uploaded · ${humanFileSize(processed.sizeBytes)} · ${processed.width}×${processed.height}`);
   };
 
   const save = async () => {
@@ -148,11 +157,16 @@ function CompanyTab({ company, refresh }) {
   const [busy, setBusy] = useState(false);
 
   const uploadLogo = async (file, key) => {
-    if (file.size > 1024 * 1024) return toast.error("Max 1MB");
-    const data_base64 = await fileToBase64(file);
-    const { data } = await api.post("/admin/media", { data_base64, mime_type: file.type, filename: file.name });
+    let processed;
+    try {
+      // Logos/favicons are small — clamp to 1MB after compression.
+      processed = await preprocessImage(file, { maxBytes: 1 * 1024 * 1024, maxDim: 1200 });
+    } catch (e) { return toast.error(e?.message || "Could not read image"); }
+    const { data } = await api.post("/admin/media", {
+      data_base64: processed.dataBase64, mime_type: processed.mimeType, filename: file.name,
+    });
     set(key, data.id);
-    toast.success("Logo uploaded");
+    toast.success(`Logo uploaded · ${humanFileSize(processed.sizeBytes)} · ${processed.width}×${processed.height}`);
   };
 
   const save = async () => {
@@ -820,3 +834,182 @@ function AuthTab({ company, refresh }) {
     </div>
   );
 }
+
+
+// ====================== HEADER / FOOTER LAYOUT ======================
+const HEADER_PRESETS = [
+  { value: "classic",  label: "Classic", desc: "Logo left · menu right (current default)" },
+  { value: "centered", label: "Centered", desc: "Logo centered · menu below" },
+  { value: "split",    label: "Split",    desc: "Menu items on both sides of a centered logo" },
+];
+const FOOTER_PRESETS = [
+  { value: "columns",  label: "Columns",   desc: "Shop · Help · Social (3 columns)" },
+  { value: "minimal",  label: "Minimal",   desc: "Single line · brand + copyright" },
+  { value: "brand",    label: "Brand",     desc: "Big brand wordmark + tagline + social row" },
+];
+
+function ColorRow({ label, value, onChange, hint, testid }) {
+  return (
+    <div>
+      <Label className="text-xs uppercase tracking-widest text-zinc-400">{label}</Label>
+      <div className="flex items-center gap-2 mt-1">
+        <input type="color" value={value || "#000000"} onChange={(e) => onChange(e.target.value)} className="w-12 h-9 border border-zinc-800 bg-transparent" data-testid={testid}/>
+        <Input value={value || ""} onChange={(e) => onChange(e.target.value)} placeholder="#000000 (leave blank for default)" className="bg-zinc-900 border-zinc-800 rounded-none font-mono"/>
+      </div>
+      {hint && <p className="text-[10px] text-zinc-500 mt-1">{hint}</p>}
+    </div>
+  );
+}
+
+function LayoutTab({ company, refresh }) {
+  const [form, setForm] = useState(company || {});
+  useEffect(() => { setForm(company || {}); }, [company]);
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put("/admin/company", {
+        header_layout: form.header_layout, header_bg_color: form.header_bg_color || null,
+        header_text_color: form.header_text_color || null, header_hover_color: form.header_hover_color || null,
+        footer_layout: form.footer_layout, footer_bg_color: form.footer_bg_color || null,
+        footer_text_color: form.footer_text_color || null, footer_hover_color: form.footer_hover_color || null,
+      });
+      await refresh();
+      toast.success("Saved — refresh storefront to see changes.");
+    } catch { toast.error("Save failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="border border-zinc-800 bg-zinc-950 p-5 space-y-5" data-testid="layout-header-card">
+        <div>
+          <h2 className="font-heading uppercase tracking-widest text-sm">Header layout</h2>
+          <p className="text-xs text-zinc-500 mt-1">Choose how the navigation bar looks on every storefront page.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {HEADER_PRESETS.map((p) => (
+            <button key={p.value} type="button" onClick={() => set("header_layout", p.value)}
+              data-testid={`header-preset-${p.value}`}
+              className={`text-left p-4 border-2 transition-colors ${form.header_layout === p.value ? "border-[var(--theme-primary,#FF3B30)] bg-zinc-900" : "border-zinc-800 hover:border-zinc-700"}`}>
+              <div className="font-heading uppercase tracking-widest text-xs mb-1">{p.label}</div>
+              <div className="text-[11px] text-zinc-500">{p.desc}</div>
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <ColorRow label="Background" value={form.header_bg_color} onChange={(v) => set("header_bg_color", v)} testid="header-bg-color"/>
+          <ColorRow label="Text color" value={form.header_text_color} onChange={(v) => set("header_text_color", v)} testid="header-text-color"/>
+          <ColorRow label="Hover color" value={form.header_hover_color} onChange={(v) => set("header_hover_color", v)} testid="header-hover-color"/>
+        </div>
+      </div>
+
+      <div className="border border-zinc-800 bg-zinc-950 p-5 space-y-5" data-testid="layout-footer-card">
+        <div>
+          <h2 className="font-heading uppercase tracking-widest text-sm">Footer layout</h2>
+          <p className="text-xs text-zinc-500 mt-1">Choose the footer style. Links, copyright, and social icons stay configurable from the Page Builder.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {FOOTER_PRESETS.map((p) => (
+            <button key={p.value} type="button" onClick={() => set("footer_layout", p.value)}
+              data-testid={`footer-preset-${p.value}`}
+              className={`text-left p-4 border-2 transition-colors ${form.footer_layout === p.value ? "border-[var(--theme-primary,#FF3B30)] bg-zinc-900" : "border-zinc-800 hover:border-zinc-700"}`}>
+              <div className="font-heading uppercase tracking-widest text-xs mb-1">{p.label}</div>
+              <div className="text-[11px] text-zinc-500">{p.desc}</div>
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <ColorRow label="Background" value={form.footer_bg_color} onChange={(v) => set("footer_bg_color", v)} testid="footer-bg-color"/>
+          <ColorRow label="Text color" value={form.footer_text_color} onChange={(v) => set("footer_text_color", v)} testid="footer-text-color"/>
+          <ColorRow label="Hover color" value={form.footer_hover_color} onChange={(v) => set("footer_hover_color", v)} testid="footer-hover-color"/>
+        </div>
+      </div>
+
+      <Button onClick={save} disabled={busy} className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold gap-2" data-testid="save-layout-btn">
+        <Save className="h-4 w-4"/>{busy ? "Saving..." : "Save Layout"}
+      </Button>
+    </div>
+  );
+}
+
+
+// ====================== RECEIPT TEMPLATE ======================
+const RECEIPT_SIZES = [
+  { value: "80mm", label: "80mm Thermal", desc: "Standard POS receipt printer (most common)" },
+  { value: "58mm", label: "58mm Thermal", desc: "Small thermal printers (handheld/portable)" },
+  { value: "a4",   label: "A4 / Letter", desc: "Full-page invoices for online orders" },
+];
+
+function ReceiptTab({ company, refresh }) {
+  const [form, setForm] = useState(company || {});
+  useEffect(() => { setForm(company || {}); }, [company]);
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    setBusy(true);
+    try {
+      await api.put("/admin/company", {
+        receipt_size: form.receipt_size || "80mm",
+        receipt_header_text: form.receipt_header_text || null,
+        receipt_footer_text: form.receipt_footer_text || null,
+        receipt_show_logo: !!form.receipt_show_logo,
+        receipt_show_qr: !!form.receipt_show_qr,
+        receipt_show_barcode: !!form.receipt_show_barcode,
+        receipt_show_tax: !!form.receipt_show_tax,
+      });
+      await refresh();
+      toast.success("Receipt template saved.");
+    } catch { toast.error("Save failed"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="border border-zinc-800 bg-zinc-950 p-5 space-y-5">
+        <div>
+          <h2 className="font-heading uppercase tracking-widest text-sm">Receipt template</h2>
+          <p className="text-xs text-zinc-500 mt-1">Customise the printed/PDF receipt for POS sales and online orders.</p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          {RECEIPT_SIZES.map((r) => (
+            <button key={r.value} type="button" onClick={() => set("receipt_size", r.value)}
+              data-testid={`receipt-size-${r.value}`}
+              className={`text-left p-4 border-2 transition-colors ${form.receipt_size === r.value ? "border-[var(--theme-primary,#FF3B30)] bg-zinc-900" : "border-zinc-800 hover:border-zinc-700"}`}>
+              <div className="font-heading uppercase tracking-widest text-xs mb-1">{r.label}</div>
+              <div className="text-[11px] text-zinc-500">{r.desc}</div>
+            </button>
+          ))}
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <Label className="text-xs uppercase tracking-widest text-zinc-400">Top text (printed above items)</Label>
+            <Textarea value={form.receipt_header_text || ""} onChange={(e) => set("receipt_header_text", e.target.value)} rows={3} placeholder="Thank you for shopping at {{brand_name}}!" className="bg-zinc-900 border-zinc-800 rounded-none mt-1" data-testid="receipt-header-text"/>
+          </div>
+          <div>
+            <Label className="text-xs uppercase tracking-widest text-zinc-400">Bottom text (printed below total)</Label>
+            <Textarea value={form.receipt_footer_text || ""} onChange={(e) => set("receipt_footer_text", e.target.value)} rows={3} placeholder="Returns accepted within 7 days. Keep this receipt." className="bg-zinc-900 border-zinc-800 rounded-none mt-1" data-testid="receipt-footer-text"/>
+          </div>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+          {[
+            { key: "receipt_show_logo", label: "Show logo" },
+            { key: "receipt_show_qr", label: "Show QR (receipt URL)" },
+            { key: "receipt_show_barcode", label: "Show order barcode" },
+            { key: "receipt_show_tax", label: "Show tax line" },
+          ].map(({ key, label }) => (
+            <label key={key} className="flex items-center gap-2 text-xs text-zinc-300">
+              <Switch checked={!!form[key]} onCheckedChange={(v) => set(key, v)} data-testid={`receipt-${key}`}/>
+              {label}
+            </label>
+          ))}
+        </div>
+        <Button onClick={save} disabled={busy} className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold gap-2" data-testid="save-receipt-btn">
+          <Save className="h-4 w-4"/>{busy ? "Saving..." : "Save Receipt Template"}
+        </Button>
+      </div>
+    </div>
+  );
+}
+

@@ -44,6 +44,7 @@ class VariantIn(BaseModel):
     color_hex: Optional[str] = None
     price_override: Optional[float] = None
     sku: Optional[str] = None
+    barcode: Optional[str] = None
     stock: int = 0
 
 
@@ -91,7 +92,8 @@ async def product_to_dict(p: M.Product, db: AsyncSession, include_details: bool 
             for iv in (await db.execute(select(M.Inventory).where(M.Inventory.variant_id.in_([v.id for v in variants])))).scalars().all():
                 inv_map[iv.variant_id] = inv_map.get(iv.variant_id, 0) + iv.quantity
         data["variants"] = [{"id": v.id, "size": v.size, "color": v.color, "color_hex": v.color_hex,
-                            "price_override": v.price_override, "sku": v.sku, "stock": inv_map.get(v.id, 0)}
+                            "price_override": v.price_override, "sku": v.sku, "barcode": v.barcode,
+                            "stock": inv_map.get(v.id, 0)}
                            for v in variants]
         cat = (await db.execute(select(M.Category).where(M.Category.id == p.category_id))).scalar_one_or_none() if p.category_id else None
         data["category"] = {"id": cat.id, "name": cat.name, "slug": cat.slug} if cat else None
@@ -229,7 +231,7 @@ async def create_product(payload: ProductIn, db: AsyncSession = Depends(get_db),
     await db.refresh(p)
     for v in payload.variants:
         variant = M.Variant(product_id=p.id, size=v.size, color=v.color, color_hex=v.color_hex,
-                            price_override=v.price_override, sku=v.sku)
+                            price_override=v.price_override, sku=v.sku, barcode=v.barcode)
         db.add(variant)
         await db.flush()
         db.add(M.Inventory(variant_id=variant.id, store_id=store.id, quantity=v.stock))
@@ -258,7 +260,7 @@ async def update_product(pid: str, payload: ProductIn, db: AsyncSession = Depend
         if v.id and v.id in existing_map:
             ev = existing_map[v.id]
             ev.size = v.size; ev.color = v.color; ev.color_hex = v.color_hex
-            ev.price_override = v.price_override; ev.sku = v.sku
+            ev.price_override = v.price_override; ev.sku = v.sku; ev.barcode = v.barcode
             inv = (await db.execute(select(M.Inventory).where(and_(M.Inventory.variant_id == ev.id, M.Inventory.store_id == store.id)))).scalar_one_or_none()
             if inv:
                 inv.quantity = v.stock
@@ -267,7 +269,7 @@ async def update_product(pid: str, payload: ProductIn, db: AsyncSession = Depend
             incoming_ids.add(v.id)
         else:
             nv = M.Variant(product_id=p.id, size=v.size, color=v.color, color_hex=v.color_hex,
-                          price_override=v.price_override, sku=v.sku)
+                          price_override=v.price_override, sku=v.sku, barcode=v.barcode)
             db.add(nv); await db.flush()
             db.add(M.Inventory(variant_id=nv.id, store_id=store.id, quantity=v.stock))
             incoming_ids.add(nv.id)

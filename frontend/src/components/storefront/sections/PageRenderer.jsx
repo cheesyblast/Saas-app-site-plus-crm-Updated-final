@@ -27,8 +27,9 @@ export default function PageRenderer({ sections }) {
         const cfg = s.config || {};
         const style = sectionWrapperStyle(cfg);
         const padCls = PADDING_CLASS[cfg.padding] || "";
-        // For hero we want full bleed — only wrap non-hero with style div if any custom style
-        const hasStyleOverride = cfg.bg_color || cfg.text_color || cfg.padding;
+        // Wrap a section with our style div when ANY of these are set —
+        // bg_color, text_color, padding, OR a background image.
+        const hasStyleOverride = cfg.bg_color || cfg.text_color || cfg.padding || cfg.bg_image_id || cfg.bg_image_url;
         const inner = <Cmp config={cfg} key={s.id} />;
         if (s.section_type === "hero" || !hasStyleOverride) return inner;
         return (

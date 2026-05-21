@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Plus, Minus, Search, Trash2, Printer, MessageSquare, Percent } from "lucide-react";
+import { Plus, Minus, Search, Trash2, Printer, MessageSquare, Percent, Barcode } from "lucide-react";
 import { toast } from "sonner";
 import { normalizePhoneLK } from "@/lib/phone";
 
@@ -94,6 +94,29 @@ export default function POS() {
     return products.filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
   }, [q, products]);
 
+  // ---------- Barcode scanner support ----------
+  // A USB scanner just types the barcode as fast as keystrokes + Enter.
+  // We dedicate an input box that auto-focuses and submits on Enter, so
+  // any cashier can scan without touching the mouse. Tablets can also
+  // tap a "Scan" button to focus the field.
+  const [scanCode, setScanCode] = useState("");
+  const onScanSubmit = async (e) => {
+    e?.preventDefault();
+    const code = scanCode.trim();
+    if (!code) return;
+    setScanCode("");
+    try {
+      const { data } = await api.get(`/admin/barcode/lookup/${encodeURIComponent(code)}`);
+      // Re-use existing add() — synthesise the shape it expects.
+      const synthProduct = { id: data.product_id, name: data.product_name, base_price: data.price, images: [], category_id: null };
+      const synthVariant = { id: data.variant_id, size: data.size, color: data.color, price_override: null };
+      add(synthProduct, synthVariant);
+      toast.success(`Added ${data.product_name}${data.size ? ` · ${data.size}` : ""}`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Barcode not found");
+    }
+  };
+
   const add = (p, v) => {
     const price = v.price_override ?? p.base_price;
     setCart((prev) => {
@@ -174,9 +197,22 @@ export default function POS() {
             </SelectContent>
           </Select>
         </div>
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products..." className="pl-9 bg-zinc-900 border-zinc-800 rounded-none" data-testid="pos-search" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500" />
+            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search products..." className="pl-9 bg-zinc-900 border-zinc-800 rounded-none" data-testid="pos-search" />
+          </div>
+          <form onSubmit={onScanSubmit} className="relative">
+            <Barcode className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-emerald-500" />
+            <Input
+              value={scanCode}
+              onChange={(e) => setScanCode(e.target.value)}
+              placeholder="Scan barcode (or type code + Enter)"
+              className="pl-9 bg-zinc-900 border-emerald-900/50 rounded-none font-mono focus:border-emerald-600"
+              data-testid="pos-scan-input"
+              autoFocus
+            />
+          </form>
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
           {filtered.map((p) => (

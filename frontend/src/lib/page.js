@@ -65,11 +65,21 @@ export function applyTheme(theme, options = {}) {
   set("--theme-surface", surfaceTint);
 }
 
-/* Wrap a section to apply per-section style overrides */
+/* Wrap a section to apply per-section style overrides:
+   bg_color, text_color, bg_image (id or URL), bg_overlay (rgba/hex). */
 export function sectionWrapperStyle(cfg) {
   const s = {};
   if (cfg?.bg_color) s.backgroundColor = cfg.bg_color;
   if (cfg?.text_color) s.color = cfg.text_color;
+  if (cfg?.bg_image_id || cfg?.bg_image_url) {
+    const src = cfg.bg_image_id
+      ? `${(typeof process !== "undefined" && process.env?.REACT_APP_BACKEND_URL) || ""}/api/media/${cfg.bg_image_id}`
+      : cfg.bg_image_url;
+    s.backgroundImage = `url("${src}")`;
+    s.backgroundSize = cfg.bg_image_size || "cover";
+    s.backgroundPosition = cfg.bg_image_position || "center";
+    s.backgroundRepeat = "no-repeat";
+  }
   return s;
 }
 

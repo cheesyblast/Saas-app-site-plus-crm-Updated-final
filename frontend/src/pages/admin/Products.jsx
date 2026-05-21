@@ -10,6 +10,7 @@ import { Switch } from "@/components/ui/switch";
 import { Plus, Pencil, Trash2, Sparkles, X, Search, Star, Upload } from "lucide-react";
 import { toast } from "sonner";
 import { formatApiErrorDetail } from "@/lib/errors";
+import { preprocessImage, humanFileSize } from "@/lib/image";
 import Pagination from "@/components/admin/Pagination";
 
 const empty = {
@@ -80,7 +81,7 @@ export default function Products() {
           id: v.id || null, size: v.size || null, color: v.color || null,
           color_hex: v.color_hex || null,
           price_override: v.price_override ? parseFloat(v.price_override) : null,
-          sku: v.sku || null, stock: parseInt(v.stock) || 0,
+          sku: v.sku || null, barcode: v.barcode || null, stock: parseInt(v.stock) || 0,
         })),
       };
       let saved;
@@ -118,16 +119,21 @@ export default function Products() {
 
   const uploadImage = async (file, color = null) => {
     if (!form.id) return toast.error("Save the product first to upload images");
-    const data_base64 = await fileToBase64(file);
+    let processed;
+    try {
+      processed = await preprocessImage(file, { maxBytes: 1.5 * 1024 * 1024, maxDim: 2400 });
+    } catch (e) {
+      return toast.error(e.message || "Could not read image");
+    }
     const isFirst = form.images.length === 0;
     await api.post(`/admin/products/${form.id}/images`, {
-      data_base64, mime_type: file.type || "image/png", is_primary: isFirst, color,
+      data_base64: processed.dataBase64, mime_type: processed.mimeType, is_primary: isFirst, color,
     });
     const { data } = await api.get(`/admin/products`, { params: { page: 1, page_size: PAGE_SIZE } });
     const fresh = (data.items || []).find((p) => p.id === form.id);
     if (fresh) setForm((f) => ({ ...f, images: fresh.images }));
     load();
-    toast.success("Image uploaded");
+    toast.success(`Uploaded · ${humanFileSize(processed.sizeBytes)} · ${processed.width}×${processed.height}${processed.compressed ? " (compressed)" : ""}`);
   };
 
   const setMainImage = async (img_id) => {
@@ -167,6 +173,7 @@ export default function Products() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-zinc-500"/>
             <Input data-testid="products-search" placeholder="Search products..." value={search} onChange={(e) => setSearch(e.target.value)} className="bg-zinc-900 border-zinc-800 rounded-none pl-9 w-64"/>
           </div>
+          <a href="/admin/barcode-labels" target="_blank" rel="noreferrer" data-testid="print-labels-link" className="hidden md:inline-flex items-center gap-2 border border-zinc-800 bg-transparent hover:bg-zinc-900 rounded-none uppercase tracking-widest text-xs px-3 py-2">Print labels</a>
           <Button onClick={create} data-testid="new-product-btn" className="bg-[var(--theme-primary,#FF3B30)] hover:bg-[var(--theme-primary-hover,#D92D23)] rounded-none uppercase tracking-widest font-bold">
             <Plus className="h-4 w-4 mr-2" /> New Product
           </Button>
@@ -245,16 +252,18 @@ export default function Products() {
               <div className="space-y-2">
                 {form.variants.map((v, i) => (
                   <div key={i} className="grid grid-cols-12 gap-2 items-center">
-                    <Input placeholder="Size" value={v.size || ""} onChange={(e) => setVar(i, "size", e.target.value)} className="col-span-2 bg-zinc-900 border-zinc-800 rounded-none" />
-                    <Input placeholder="Color name" value={v.color || ""} onChange={(e) => setVar(i, "color", e.target.value)} className="col-span-3 bg-zinc-900 border-zinc-800 rounded-none" />
+                    <Input placeholder="Size" value={v.size || ""} onChange={(e) => setVar(i, "size", e.target.value)} className="col-span-1 bg-zinc-900 border-zinc-800 rounded-none" />
+                    <Input placeholder="Color name" value={v.color || ""} onChange={(e) => setVar(i, "color", e.target.value)} className="col-span-2 bg-zinc-900 border-zinc-800 rounded-none" />
                     <div className="col-span-1 flex items-center gap-1"><input type="color" value={v.color_hex || "#000"} onChange={(e) => setVar(i, "color_hex", e.target.value)} className="w-9 h-9 cursor-pointer bg-transparent border border-zinc-800"/></div>
                     <Input placeholder="Price ovr" type="number" step="0.01" value={v.price_override || ""} onChange={(e) => setVar(i, "price_override", e.target.value)} className="col-span-2 bg-zinc-900 border-zinc-800 rounded-none" />
                     <Input placeholder="SKU" value={v.sku || ""} onChange={(e) => setVar(i, "sku", e.target.value)} className="col-span-2 bg-zinc-900 border-zinc-800 rounded-none" />
+                    <Input placeholder="Barcode" data-testid={`variant-barcode-${i}`} value={v.barcode || ""} onChange={(e) => setVar(i, "barcode", e.target.value)} className="col-span-2 bg-zinc-900 border-zinc-800 rounded-none font-mono" />
                     <Input placeholder="Stock" type="number" value={v.stock || 0} onChange={(e) => setVar(i, "stock", e.target.value)} className="col-span-1 bg-zinc-900 border-zinc-800 rounded-none" />
                     <button onClick={() => delVar(i)} className="col-span-1 text-zinc-400 hover:text-red-400"><X className="h-4 w-4" /></button>
                   </div>
                 ))}
               </div>
+              <p className="text-[10px] text-zinc-500 mt-2">Barcode is what your POS scanner reads. Leave blank to use SKU as fallback. Click <strong>Print labels</strong> in Products list to generate a printable sheet of all barcodes.</p>
             </div>
 
             {/* Images */}
@@ -289,6 +298,10 @@ export default function Products() {
                   <Upload className="h-4 w-4"/>{form.id ? "Click to upload image" : "Save product first"}
                   <input data-testid="upload-image-input" type="file" accept="image/*" disabled={!form.id} hidden multiple onChange={(e)=>{const fs=Array.from(e.target.files||[]); fs.forEach(f=>uploadImage(f));}}/>
                 </label>
+                <p className="text-[10px] text-zinc-500 leading-relaxed">
+                  Recommended: 1200×1500 portrait, JPG/PNG, up to <span className="text-zinc-300">1.5&nbsp;MB</span>.
+                  Larger photos are auto-resized to 2400px and compressed.
+                </p>
                 {form.id && (
                   <div className="flex gap-2 items-center text-[10px] text-zinc-500 uppercase tracking-widest">
                     <Sparkles className="h-3 w-3"/>Tip: Bind each image to a specific color so customers see the correct photo when picking color.

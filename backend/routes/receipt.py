@@ -45,17 +45,31 @@ async def public_receipt(order_number: str, db: AsyncSession = Depends(get_db)):
         raise HTTPException(404, "Order not found")
     cs = (await db.execute(select(M.CompanySettings).where(M.CompanySettings.id == "default"))).scalar_one_or_none()
     items = (await db.execute(select(M.OrderItem).where(M.OrderItem.order_id == o.id))).scalars().all()
+    receipt_cfg = None
+    if cs:
+        receipt_cfg = {
+            "size": cs.receipt_size or "80mm",
+            "header_text": cs.receipt_header_text,
+            "footer_text": cs.receipt_footer_text,
+            "show_logo": bool(cs.receipt_show_logo),
+            "show_qr": bool(cs.receipt_show_qr),
+            "show_barcode": bool(cs.receipt_show_barcode),
+            "show_tax": bool(cs.receipt_show_tax),
+        }
     return {
         "order_number": o.order_number, "status": o.status, "payment_status": o.payment_status,
         "payment_method": o.payment_method, "subtotal": o.subtotal, "discount": o.discount,
-        "shipping": o.shipping, "total": o.total, "cash_tendered": o.cash_tendered, "cash_change": o.cash_change,
+        "shipping": o.shipping, "tax": getattr(o, "tax", 0) or 0,
+        "total": o.total, "cash_tendered": o.cash_tendered, "cash_change": o.cash_change,
         "card_last4": o.card_last4, "customer_name": o.customer_name,
         "created_at": o.created_at.isoformat(),
         "items": [{"name": i.product_name, "variant": i.variant_label, "qty": i.quantity,
                    "unit": i.unit_price, "subtotal": i.subtotal} for i in items],
         "company": {"name": cs.company_name if cs else "Store", "address": cs.address if cs else None,
                     "phone": cs.phone if cs else None, "email": cs.email if cs else None,
-                    "currency": cs.currency if cs else "LKR"},
+                    "currency": cs.currency if cs else "LKR",
+                    "logo_id": cs.logo_light_id if cs else None},
+        "receipt": receipt_cfg,
     }
 
 

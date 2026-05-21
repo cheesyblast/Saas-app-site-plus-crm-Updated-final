@@ -44,6 +44,7 @@ import AdminIncExp from "@/pages/admin/IncomeExpense";
 import AdminCashAccounts from "@/pages/admin/CashAccounts";
 import AdminCsvImport from "@/pages/admin/CsvImport";
 import AdminPaymentsShipping from "@/pages/admin/PaymentsShipping";
+import AdminBarcodeLabels from "@/pages/admin/BarcodeLabels";
 import Receipt from "@/pages/storefront/Receipt";
 import Dashboard_Redirect from "@/pages/DashboardRouter";
 
@@ -92,6 +93,7 @@ function AppRouter() {
           <Route path="/admin" element={<Dashboard />} />
           <Route path="/admin/builder" element={<AdminBuilder />} />
           <Route path="/admin/products" element={<AdminProducts />} />
+          <Route path="/admin/barcode-labels" element={<AdminBarcodeLabels />} />
           <Route path="/admin/categories" element={<AdminCategories />} />
           <Route path="/admin/inventory" element={<AdminInventory />} />
           <Route path="/admin/orders" element={<AdminOrders />} />

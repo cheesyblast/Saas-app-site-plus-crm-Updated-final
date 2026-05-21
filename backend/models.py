@@ -113,6 +113,27 @@ class CompanySettings(Base):
     header_logo_height = Column(Integer, default=32, nullable=False)
     footer_logo_height = Column(Integer, default=40, nullable=False)
     logo_display_mode = Column(String(16), default="auto", nullable=False)  # auto | fit-height | fit-width
+    # ---- Header / Footer customisation (set by Page Builder) ----
+    header_layout = Column(String(32), default="classic", nullable=False)  # classic | centered | split
+    header_bg_color = Column(String(16), nullable=True)
+    header_text_color = Column(String(16), nullable=True)
+    header_hover_color = Column(String(16), nullable=True)
+    footer_layout = Column(String(32), default="columns", nullable=False)   # columns | minimal | brand
+    footer_bg_color = Column(String(16), nullable=True)
+    footer_text_color = Column(String(16), nullable=True)
+    footer_hover_color = Column(String(16), nullable=True)
+    # ---- Customisable receipt template ----
+    receipt_size = Column(String(16), default="80mm", nullable=False)  # 80mm | 58mm | a4
+    receipt_header_text = Column(Text, nullable=True)
+    receipt_footer_text = Column(Text, nullable=True)
+    receipt_show_logo = Column(Boolean, default=True, nullable=False)
+    receipt_show_qr = Column(Boolean, default=True, nullable=False)
+    receipt_show_barcode = Column(Boolean, default=False, nullable=False)
+    receipt_show_tax = Column(Boolean, default=False, nullable=False)
+    # ---- Cart abandonment recovery ----
+    cart_recovery_enabled = Column(Boolean, default=False, nullable=False)
+    cart_recovery_after_min = Column(Integer, default=60, nullable=False)
+    cart_recovery_channels = Column(String(32), default="email,sms", nullable=False)
     setup_complete = Column(Boolean, default=False, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
@@ -209,6 +230,9 @@ class Variant(Base):
     color_hex = Column(String(16), nullable=True)
     price_override = Column(Float, nullable=True)
     sku = Column(String(64), nullable=True)
+    # Scannable barcode (EAN-13, UPC, CODE128 — we don't constrain the format).
+    # Indexed because the POS scanner queries by exact match.
+    barcode = Column(String(64), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
@@ -531,10 +555,38 @@ class NotificationTemplate(Base):
     name = Column(String(128), nullable=False)
     subject = Column(String(255), nullable=True)
     body = Column(Text, nullable=False)
+    # Optional rich HTML body for branded emails. When set + channel=='email',
+    # dispatcher sends a multipart message with this as the html part.
+    body_html = Column(Text, nullable=True)
     active = Column(Boolean, default=True, nullable=False)
     is_default = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
     updated_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
+
+
+class CartSession(Base):
+    """Server-side mirror of an open cart, used for abandonment recovery.
+
+    The storefront upserts a row whenever a customer with contactable info
+    (email or phone) updates their cart. Once they place an order we mark
+    `converted_at`; if they go silent for `abandon_after_min` minutes, the
+    `cart_recovery` worker dispatches the `abandoned_cart` template and
+    flips `reminded_at` so we never spam twice.
+    """
+    __tablename__ = "cart_sessions"
+    id = Column(String(64), primary_key=True, default=gen_uuid)
+    customer_id = Column(String(64), nullable=True, index=True)
+    customer_name = Column(String(255), nullable=True)
+    customer_email = Column(String(255), nullable=True, index=True)
+    customer_phone = Column(String(32), nullable=True)
+    items_json = Column(JSON, nullable=False, default=list)
+    items_count = Column(Integer, default=0, nullable=False)
+    estimated_total = Column(Float, default=0.0, nullable=False)
+    last_seen_at = Column(DateTime(timezone=True), default=utcnow, nullable=False, index=True)
+    reminded_at = Column(DateTime(timezone=True), nullable=True)
+    reminded_channel = Column(String(16), nullable=True)
+    converted_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 
 # ---- Shipping & Payments (Sri Lanka) ----

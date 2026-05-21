@@ -225,9 +225,14 @@ class MediaUpload(BaseModel):
 
 @router.post("/admin/media")
 async def upload_media(payload: MediaUpload, db: AsyncSession = Depends(get_db), _: M.User = Depends(require_admin)):
+    # Reject grossly oversized uploads (base64 of ~4MB binary). Frontend
+    # already auto-compresses; this is a defence in depth.
+    MAX_B64_LEN = 5 * 1024 * 1024  # ~3.75MB binary
+    if payload.data_base64 and len(payload.data_base64) > MAX_B64_LEN:
+        raise HTTPException(413, "Image too large. Max 3 MB after compression.")
     m = M.Media(data_base64=payload.data_base64, mime_type=payload.mime_type, filename=payload.filename)
     db.add(m); await db.commit(); await db.refresh(m)
-    return {"id": m.id, "url": f"/api/media/{m.id}", "mime_type": m.mime_type}
+    return {"id": m.id, "url": f"/api/media/{m.id}", "mime_type": m.mime_type, "size": len(payload.data_base64 or "")}
 
 
 @router.get("/media/{mid}")

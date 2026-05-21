@@ -4,15 +4,17 @@ import api, { imgSrc, BACKEND_URL } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { toast } from "sonner";
+import { preprocessImage, humanFileSize } from "@/lib/image";
 
 /**
  * MediaUploader - file upload + URL input.
  * Value shape: { image_id, image_url } (one of them populated)
  * onChange({ image_id, image_url })
  */
-export default function MediaUploader({ value, onChange, label = "Image", accept = "image/*" }) {
+export default function MediaUploader({ value, onChange, label = "Image", accept = "image/*", maxMB = 3 }) {
   const fileRef = useRef(null);
   const [uploading, setUploading] = useState(false);
+  const [info, setInfo] = useState(null);  // { size, w, h }
 
   const v = value || {};
   const hasMedia = v.image_id || v.image_url;
@@ -23,32 +25,41 @@ export default function MediaUploader({ value, onChange, label = "Image", accept
 
   const upload = async (file) => {
     if (!file) return;
-    const max = isVideo ? 15 * 1024 * 1024 : 5 * 1024 * 1024;
-    if (file.size > max) {
-      toast.error(`File too large (max ${isVideo ? "15MB" : "5MB"})`);
-      return;
-    }
     setUploading(true);
     try {
-      const reader = new FileReader();
-      reader.onload = async () => {
-        const b64 = reader.result.toString().split(",")[1];
-        try {
-          const { data } = await api.post("/admin/media", {
-            data_base64: b64,
-            mime_type: file.type || (isVideo ? "video/mp4" : "image/png"),
-            filename: file.name,
-          });
-          onChange({ image_id: data.id, image_url: "" });
-          toast.success("Uploaded");
-        } catch {
-          toast.error("Upload failed");
-        } finally {
-          setUploading(false);
-        }
-      };
-      reader.readAsDataURL(file);
-    } catch {
+      if (isVideo) {
+        const max = 15 * 1024 * 1024;
+        if (file.size > max) { toast.error("Video too large (max 15MB)"); setUploading(false); return; }
+        const reader = new FileReader();
+        reader.onload = async () => {
+          const b64 = reader.result.toString().split(",")[1];
+          try {
+            const { data } = await api.post("/admin/media", {
+              data_base64: b64, mime_type: file.type || "video/mp4", filename: file.name,
+            });
+            onChange({ image_id: data.id, image_url: "" });
+            toast.success("Uploaded");
+          } catch { toast.error("Upload failed"); }
+          finally { setUploading(false); }
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+      // IMAGE path: compress + resize client-side
+      const processed = await preprocessImage(file, {
+        maxBytes: maxMB * 1024 * 1024, maxDim: 2800,
+      });
+      const { data } = await api.post("/admin/media", {
+        data_base64: processed.dataBase64,
+        mime_type: processed.mimeType,
+        filename: file.name,
+      });
+      onChange({ image_id: data.id, image_url: "" });
+      setInfo({ size: processed.sizeBytes, w: processed.width, h: processed.height, compressed: processed.compressed });
+      toast.success(`Uploaded · ${humanFileSize(processed.sizeBytes)} · ${processed.width}×${processed.height}${processed.compressed ? " (compressed)" : ""}`);
+    } catch (e) {
+      toast.error(e?.message || "Upload failed");
+    } finally {
       setUploading(false);
     }
   };
@@ -104,6 +115,17 @@ export default function MediaUploader({ value, onChange, label = "Image", accept
             <ImageIcon className="h-3 w-3 mr-1" /> Clear
           </Button>
         </div>
+
+        <p className="text-[10px] text-zinc-500 leading-relaxed">
+          {isVideo
+            ? "MP4 up to 15 MB."
+            : `JPG/PNG/WebP up to ${maxMB} MB. Larger images are auto-resized to 2800px and compressed.`}
+          {info && (
+            <span className="block text-zinc-400 mt-1">
+              Last upload: {humanFileSize(info.size)} · {info.w}×{info.h}{info.compressed ? " (compressed)" : ""}
+            </span>
+          )}
+        </p>
 
         <div>
           <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1">Or paste a {isVideo ? "video" : "image"} URL</div>

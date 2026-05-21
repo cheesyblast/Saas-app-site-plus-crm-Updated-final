@@ -502,6 +502,41 @@ function StylePanel({ config, onChange }) {
           <input type="range" min={0} max={90} value={c.bg_overlay_opacity ?? 0} onChange={(e) => set("bg_overlay_opacity", parseInt(e.target.value))} className="w-full" />
         </F>
       </Row>
+      <div className="pt-3 border-t border-zinc-900">
+        <div className="text-[10px] uppercase tracking-widest text-zinc-500 mb-2">Section Background Image (max 3 MB)</div>
+        <MediaUploader
+          value={{ image_id: c.bg_image_id, image_url: c.bg_image_url }}
+          onChange={(v) => onChange({ ...c, bg_image_id: v.image_id, bg_image_url: v.image_url })}
+          label=""
+          maxMB={3}
+        />
+        {(c.bg_image_id || c.bg_image_url) && (
+          <Row>
+            <F label="Background fit">
+              <Select value={c.bg_image_size || "cover"} onValueChange={(v) => set("bg_image_size", v)}>
+                <SelectTrigger className={inputCls}><SelectValue/></SelectTrigger>
+                <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                  <SelectItem value="cover">Cover (fill — may crop)</SelectItem>
+                  <SelectItem value="contain">Contain (fit — no crop)</SelectItem>
+                  <SelectItem value="100% 100%">Stretch</SelectItem>
+                </SelectContent>
+              </Select>
+            </F>
+            <F label="Position">
+              <Select value={c.bg_image_position || "center"} onValueChange={(v) => set("bg_image_position", v)}>
+                <SelectTrigger className={inputCls}><SelectValue/></SelectTrigger>
+                <SelectContent className="bg-zinc-950 border-zinc-800 text-white">
+                  <SelectItem value="center">Center</SelectItem>
+                  <SelectItem value="top">Top</SelectItem>
+                  <SelectItem value="bottom">Bottom</SelectItem>
+                  <SelectItem value="left">Left</SelectItem>
+                  <SelectItem value="right">Right</SelectItem>
+                </SelectContent>
+              </Select>
+            </F>
+          </Row>
+        )}
+      </div>
     </div>
   );
 }

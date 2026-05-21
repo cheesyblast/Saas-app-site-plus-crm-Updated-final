@@ -153,16 +153,17 @@ async def _log_notification(db, channel, to, subject, body, order_id=None,
     """
     from dispatcher import dispatch, render_template_for_event
     # Resolve final subject/body from configured template (if any)
+    body_html = None
     if event_key:
         try:
-            subject, body = await render_template_for_event(
+            subject, body, body_html = await render_template_for_event(
                 db, event_key, channel, ctx or {}, subject, body,
             )
         except Exception as e:
             logger.warning("_log_notification template render failed: %s", e)
     if to and status == "mocked":
         try:
-            sent_status, sent_provider = await dispatch(db, channel, to, subject, body)
+            sent_status, sent_provider = await dispatch(db, channel, to, subject, body, body_html=body_html)
             status = sent_status
             provider = sent_provider
         except Exception as e:
@@ -438,6 +439,13 @@ async def checkout(payload: CheckoutIn, request: Request, db: AsyncSession = Dep
         await _log_notification(db, "sms", payload.customer_phone, "Order Confirmed",
                                  f"Order {order.order_number} confirmed. Total {total:.2f}. Receipt: {receipt_path}",
                                  order.id, event_key="order_placed", ctx=notif_ctx)
+    # If this customer had an open abandoned-cart session, mark it converted
+    # so the recovery worker stops chasing them.
+    try:
+        from routes.cart_recovery import mark_converted_for
+        await mark_converted_for(db, payload.customer_email, payload.customer_phone)
+    except Exception as e:
+        logger.warning("mark_converted_for failed: %s", e)
     await db.commit()
     await db.refresh(order)
     response_data = await _build_order_response(order, db)
