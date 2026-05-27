@@ -116,6 +116,10 @@ COLUMN_MIGRATIONS = [
     ('company_settings', 'cart_recovery_enabled', 'BOOLEAN DEFAULT FALSE'),
     ('company_settings', 'cart_recovery_after_min', 'INTEGER DEFAULT 60'),
     ('company_settings', 'cart_recovery_channels', "VARCHAR(32) DEFAULT 'email,sms'"),
+    # Per-channel marketing opt-in for customers (used by bulk-send + cart recovery)
+    ('customers', 'marketing_opt_in', 'BOOLEAN DEFAULT TRUE'),
+    ('customers', 'email_opt_in', 'BOOLEAN DEFAULT TRUE'),
+    ('customers', 'sms_opt_in', 'BOOLEAN DEFAULT TRUE'),
 ]
 
 

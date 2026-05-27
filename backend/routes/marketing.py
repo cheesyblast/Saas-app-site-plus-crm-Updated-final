@@ -231,7 +231,10 @@ async def bulk_send(payload: BulkSendPayload,
         if payload.district:
             q = q.where(M.Customer.district == payload.district)
         if payload.marketing_opt_in_only:
-            q = q.where(M.Customer.marketing_opt_in == True)  # noqa: E712
+            # Filter by per-channel opt-in. Falls back to the general
+            # `marketing_opt_in` if a channel-specific column isn't truthy.
+            col = M.Customer.email_opt_in if payload.channel == "email" else M.Customer.sms_opt_in
+            q = q.where(and_(M.Customer.marketing_opt_in == True, col == True))  # noqa: E712
     rows = (await db.execute(q)).scalars().all()
 
     address_field = "email" if payload.channel == "email" else "phone"

@@ -284,6 +284,12 @@ class Customer(Base):
     notes = Column(Text, nullable=True)
     total_orders = Column(Integer, default=0, nullable=False)
     total_spent = Column(Float, default=0.0, nullable=False)
+    # Per-channel opt-in flags for marketing blasts + abandonment recovery.
+    # Default ON for new sign-ups; admin can flip them off from the customer
+    # detail page or the storefront preferences page (when wired).
+    marketing_opt_in = Column(Boolean, default=True, nullable=False)
+    email_opt_in = Column(Boolean, default=True, nullable=False)
+    sms_opt_in = Column(Boolean, default=True, nullable=False)
     created_at = Column(DateTime(timezone=True), default=utcnow, nullable=False)
 
 

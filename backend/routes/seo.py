@@ -8,8 +8,9 @@ Reference: https://www.sitemaps.org/protocol.html
 """
 from __future__ import annotations
 
+import time
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Optional, Tuple
 from xml.sax.saxutils import escape
 
 from fastapi import APIRouter, Depends, Request
@@ -29,6 +30,13 @@ _STATIC_ROUTES = [
     ("about", 0.5, "monthly"),
     ("contact", 0.5, "monthly"),
 ]
+
+# Simple per-origin in-memory cache. The first crawler hit pays the DB cost;
+# subsequent requests (including our own monitors) get an instant 200. Five
+# minutes is short enough that newly-published products show up reasonably
+# quickly without hammering the DB on every Googlebot hit.
+_SITEMAP_CACHE: dict[str, Tuple[float, str]] = {}
+_SITEMAP_TTL_SEC = 300
 
 
 def _public_origin(request: Request) -> str:
@@ -55,6 +63,13 @@ def _iso(dt: Optional[datetime]) -> str:
 @router.get("/sitemap.xml")
 async def sitemap_xml(request: Request, db: AsyncSession = Depends(get_db)):
     base = _public_origin(request)
+    # Return cached body if still fresh.
+    cached = _SITEMAP_CACHE.get(base)
+    now = time.time()
+    if cached and (now - cached[0]) < _SITEMAP_TTL_SEC:
+        return Response(content=cached[1], media_type="application/xml",
+                        headers={"Cache-Control": "public, max-age=900",
+                                 "X-Cache": "HIT"})
     urls = []
     today = datetime.now(timezone.utc).date().isoformat()
 
@@ -113,8 +128,10 @@ async def sitemap_xml(request: Request, db: AsyncSession = Depends(get_db)):
         lines.append("  </url>")
     lines.append("</urlset>")
     body = "\n".join(lines)
+    _SITEMAP_CACHE[base] = (now, body)
     return Response(content=body, media_type="application/xml",
-                    headers={"Cache-Control": "public, max-age=900"})
+                    headers={"Cache-Control": "public, max-age=900",
+                             "X-Cache": "MISS"})
 
 
 @router.get("/robots.txt", response_class=PlainTextResponse)
