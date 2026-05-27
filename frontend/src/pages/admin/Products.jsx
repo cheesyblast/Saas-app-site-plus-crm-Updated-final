@@ -126,9 +126,35 @@ export default function Products() {
       return toast.error(e.message || "Could not read image");
     }
     const isFirst = form.images.length === 0;
-    await api.post(`/admin/products/${form.id}/images`, {
-      data_base64: processed.dataBase64, mime_type: processed.mimeType, is_primary: isFirst, color,
-    });
+    try {
+      await api.post(`/admin/products/${form.id}/images`, {
+        data_base64: processed.dataBase64, mime_type: processed.mimeType, is_primary: isFirst, color,
+      });
+    } catch (e) {
+      const code = e?.response?.status;
+      // Some hosts (default Nginx) reject bodies > 1 MB — re-shrink the image
+      // aggressively and try once more before giving up.
+      if (code === 413 || code === 0 || code === undefined) {
+        try {
+          const smaller = await preprocessImage(file, { maxBytes: 700 * 1024, maxDim: 1600, forceJpeg: true });
+          await api.post(`/admin/products/${form.id}/images`, {
+            data_base64: smaller.dataBase64, mime_type: smaller.mimeType, is_primary: isFirst, color,
+          });
+          toast.success(`Uploaded (shrunk to ${humanFileSize(smaller.sizeBytes)} for your server's upload limit)`);
+          // re-load to show
+          const { data: r } = await api.get(`/admin/products`, { params: { page: 1, page_size: PAGE_SIZE } });
+          const fr = (r.items || []).find((p) => p.id === form.id);
+          if (fr) setForm((f) => ({ ...f, images: fr.images }));
+          load();
+          return;
+        } catch (e2) {
+          const detail = e2?.response?.data?.detail || e2?.response?.statusText || e2?.message || "Upload failed";
+          return toast.error(`Server rejected the image (HTTP ${e2?.response?.status || "?"}): ${detail}. Ask your host to set Nginx 'client_max_body_size 5M;'`);
+        }
+      }
+      const detail = e?.response?.data?.detail || e?.response?.statusText || e?.message || "Upload failed";
+      return toast.error(`Upload failed (HTTP ${code || "?"}): ${detail}`);
+    }
     const { data } = await api.get(`/admin/products`, { params: { page: 1, page_size: PAGE_SIZE } });
     const fresh = (data.items || []).find((p) => p.id === form.id);
     if (fresh) setForm((f) => ({ ...f, images: fresh.images }));

@@ -302,6 +302,11 @@ async def add_product_image(pid: str, payload: ImagePayload, db: AsyncSession = 
     p = (await db.execute(select(M.Product).where(M.Product.id == pid))).scalar_one_or_none()
     if not p:
         raise HTTPException(404, "Not found")
+    # Defence-in-depth: reject anything larger than ~3MB binary. Frontend
+    # already compresses to 1.5MB but a buggy client could send unbounded
+    # data and bloat the DB. Base64 inflates ~33%, so 4MB chars ≈ 3MB binary.
+    if payload.data_base64 and len(payload.data_base64) > 4 * 1024 * 1024:
+        raise HTTPException(413, "Image too large. Max 3 MB after compression.")
     if payload.is_primary:
         for e in (await db.execute(select(M.ProductImage).where(M.ProductImage.product_id == pid))).scalars().all():
             e.is_primary = False

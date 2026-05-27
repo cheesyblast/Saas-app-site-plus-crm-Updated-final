@@ -2,6 +2,25 @@
 
 Production stack for the ERP/Storefront app, designed for **self-hosted Supabase Postgres on a VPS** (no `supabase.co` assumption).
 
+
+
+## Important: Nginx body size limit
+
+The app uploads product images and page-builder backgrounds as JSON-encoded
+base64. The repo's `deploy/nginx/nginx.conf` sets `client_max_body_size 25M;`
+which is enough. If you front the app with **your own Nginx**, make sure your
+server block (or `http {}`) has at least:
+
+```nginx
+client_max_body_size 5M;
+```
+
+The default of 1 MB will silently 413-reject typical phone photos even after
+client-side compression. The product-image upload UI auto-retries with an
+aggressive 700 KB re-compression when it sees a 413, but values below 1 MB
+will still fail for high-resolution shots.
+
+
 ## Architecture
 
 ```

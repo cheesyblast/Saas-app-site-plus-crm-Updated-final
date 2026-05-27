@@ -1,0 +1,59 @@
+{
+  "summary": "Iteration 13 backend regression: 19/21 passed in /app/backend/tests/test_iter13_seo_cart_barcode.py. Frontend smoke partially blocked by login automation issue (fields not getting filled by Playwright); needs main-agent retry with the listed data-testids.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "/api/admin/marketing/bulk-send",
+        "issue": "AttributeError: 'Customer' has no attribute 'marketing_opt_in' -> 500 whenever marketing_opt_in_only=True (which is the DEFAULT). marketing.py L234 references a column that doesn't exist on the Customer model. Confirmed via direct request + backend traceback. Either add the column to models.Customer (+ migration) or drop the .where clause / use M.Customer.email_opt_in / sms_opt_in depending on channel.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "/api/sitemap.xml",
+        "issue": "Cold-call latency is 30-55s on local backend (returns full XML). Likely no pagination/limit on active products query. Consider adding caching (e.g., 5-min in-memory cache) or limiting URL count."
+      },
+      {
+        "endpoint": "/api/admin/products?limit=200",
+        "issue": "Takes ~29s and returns 22KB; full variant+image hydration is slow. Recommend selectinload tuning or smaller page size by default."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {
+        "flow": "Admin Login (Playwright automation)",
+        "issue": "Playwright `page.fill` against the admin login form did not populate the email/password fields (screenshots show empty inputs after fill+submit). Login form lacks data-testid attributes (email/password/submit). Confirmed login form is at /admin/login but every downstream /admin/* test redirected back to login. Frontend smoke tests for marketing/settings/products/pos could NOT be validated.",
+        "affected_selectors": ["input[type=email]", "input[type=password]", "button[type=submit]"]
+      }
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter13_seo_cart_barcode.py",
+    "/app/test_reports/pytest/iter13.xml"
+  ],
+  "action_items": [
+    "[CRITICAL] Fix /api/admin/marketing/bulk-send: either add marketing_opt_in column to Customer model (with migration) or remove the .where(Customer.marketing_opt_in == True) clause in routes/marketing.py:234. Currently the default UI call (marketing_opt_in_only=True) 500s.",
+    "[NICE] Cache /api/sitemap.xml output (5-10 min in-memory) — 30-55s response time will time out for many crawlers and our own HTTP clients.",
+    "[NICE] Add data-testids to /admin/login form (admin-email, admin-password, admin-login-submit) so Playwright smoke tests are stable.",
+    "[RETEST] After fixes, re-run Playwright smoke for /admin/marketing (Templates+Abandoned tabs, Install Prebuilt button), /admin/settings (Header/Footer + Receipt tabs), /admin/products (Barcode field + Print labels link), /admin/pos (data-testid='pos-scan-input'), and /admin/barcode-labels (SVG render)."
+  ],
+  "critical_code_review_comments": [
+    "routes/marketing.py L234: Customer.marketing_opt_in is not a column on the Customer SQLAlchemy model — every prod call that omits the customer_ids list (i.e., 'send to all opted-in') will 500. This is a regression that wasn't caught by iter12.",
+    "routes/seo.py: sitemap loads every active product+category+page without LIMIT or caching — 30-55s response observed locally. Recommend adding @lru_cache_with_ttl or fastapi-cache decorator.",
+    "/admin/login form: missing data-testid attributes for email/password/submit; testing tools cannot reliably interact with it.",
+    "routes/products.py /admin/products has no GET-by-id endpoint — current admin UI must filter from the list. Consider exposing GET /admin/products/{pid} for cleaner detail flows and faster tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter13_seo_cart_barcode.py (new — 21 pytests covering SEO, prebuilt templates, cart-abandonment, header/footer/receipt settings round-trip, Variant.barcode CRUD, barcode lookup+labels, image upload size guards, PayHere checkout regression + notify md5sig valid/invalid, bulk-send response shape + opt-in bug)"
+  ],
+  "success_rate": { "backend": "90% (19/21 passed; 2 failing tests are real bugs)", "frontend": "20% (only /admin/barcode-labels SVG render verified; rest blocked by login automation)" },
+  "test_credentials": "admin@demo.com / demo12345 (confirmed working via /api/auth/login curl + pytest)",
+  "seed_data_creation": "Test creates+deletes ephemeral product `TEST_iter13_barcode_<uuid>` with one variant carrying a known barcode. PayHere PaymentMethod row is upserted with sandbox merchant_id=1212121 / secret=iter13-secret. CompanySettings is bounced between (header_layout=centered, receipt_size=58mm, cart_recovery_enabled=True, ...) and reset to defaults at the end of the test class.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend hot-reload is sensitive — every edit under /app/backend/ triggers a 20-80s WatchFiles restart. Avoid back-to-back edits during a test run; restart backend cleanly with `sudo supervisorctl restart backend` and wait ~80s before re-running. The pytest file uses TEST_BACKEND_URL env var (default http://localhost:8001) to avoid the slow public ingress. /api/sitemap.xml takes 30-55s — pytest gives it 90s. The frontend admin-login form has no data-testids, so Playwright fill silently fails; main agent should add `data-testid='admin-email|admin-password|admin-login-submit'` to /app/frontend/src/pages/admin/Login.jsx before re-running UI smoke. PayHere fixture upserts a sandbox method row — if a real PayHere row already exists in prod, the test will overwrite its config; preserve it before running in shared envs.",
+  "rca_of_the_issue": "bulk-send 500: routes/marketing.py line 234 has `q = q.where(M.Customer.marketing_opt_in == True)` but models.Customer has no `marketing_opt_in` field — verified by `grep marketing_opt_in /app/backend/models.py` returning nothing. The bug only triggers when payload.marketing_opt_in_only is True. Mitigation: either (a) add `marketing_opt_in = Column(Boolean, default=True)` to Customer + ALTER TABLE migration; or (b) rewrite the filter to channel-specific opt-in columns (email_opt_in/sms_opt_in) that already exist."
+}
